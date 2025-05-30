@@ -370,27 +370,24 @@ export default function VideoCall({
         setTimeout(() => setCopied(false), 2000);
     };
 
-    // Layout when in call - Side by Side Videos
+    // Layout when in call - Otimizado para tela cheia sem rolagem
     if (callState.isInCall) {
         return (
-            <div className='min-h-screen bg-gray-900 p-2 md:p-4'>
-                <div className='max-w-7xl mx-auto'>
-                    {/* Header */}
-                    <div className='text-center mb-4 md:mb-6'>
-                        <h1 className='text-xl md:text-2xl font-bold text-white mb-2'>
-                            Em chamada com {callState.remotePeerId}
-                        </h1>
+            <div className='h-screen bg-gray-900 p-2 md:p-4 flex flex-col overflow-hidden'>
+                <div className='flex-1 flex flex-col max-h-full'>
+                    {/* Header - Compacto */}
+                    <div className='text-center mb-2 flex-shrink-0'>
                         <p className='text-gray-300 text-sm'>
                             {remoteStream ? "Conectado" : "Conectando..."}
                         </p>
                     </div>
 
                     {/* Main Video Layout - Guest takes full space, local video as overlay */}
-                    <div className='relative mb-8'>
+                    <div className='relative flex-1 min-h-0 mb-2 flex justify-center'>
                         {/* Remote Video - Full Screen */}
-                        <Card className='bg-black border-gray-700'>
-                            <CardContent className='p-4'>
-                                <div className='aspect-video bg-gray-800 rounded-lg overflow-hidden relative'>
+                        <Card className='bg-black border-gray-700 h-full flex justify-center'>
+                            <CardContent className='p-2 md:p-4 h-full'>
+                                <div className='sm:aspect-video h-full bg-gray-800 rounded-lg overflow-hidden relative flex justify-center'>
                                     <video
                                         ref={remoteVideoRef}
                                         autoPlay
@@ -449,8 +446,8 @@ export default function VideoCall({
                                         </div>
                                     )}
 
-                                    {/* Local Video Overlay - Picture in Picture */}
-                                    <div className='absolute top-2 right-2 md:top-4 md:right-4 w-32 h-24 md:w-48 md:h-36 bg-black rounded-lg overflow-hidden border-2 border-white/30 shadow-2xl z-10 group hover:scale-105 transition-transform duration-200'>
+                                    {/* Local Video Overlay - Picture in Picture - MOVIDO PARA BAIXO */}
+                                    <div className='absolute bottom-1 right-2 md:right-4 w-24 h-18 md:w-40 md:h-30 lg:w-48 lg:h-36 bg-black rounded-lg overflow-hidden border-2 border-white/30 shadow-2xl z-10 group hover:scale-105 transition-transform duration-200'>
                                         <video
                                             key={localVideoKey}
                                             ref={localVideoRef}
@@ -498,8 +495,8 @@ export default function VideoCall({
                                             !callState.isVideoEnabled) && (
                                             <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
                                                 <div className='text-white text-center'>
-                                                    <div className='w-8 h-8 bg-gray-600 rounded-full mx-auto mb-1 flex items-center justify-center'>
-                                                        <span className='text-sm'>
+                                                    <div className='w-6 h-6 md:w-8 md:h-8 bg-gray-600 rounded-full mx-auto mb-1 flex items-center justify-center'>
+                                                        <span className='text-xs md:text-sm'>
                                                             👤
                                                         </span>
                                                     </div>
@@ -512,8 +509,8 @@ export default function VideoCall({
                                             </div>
                                         )}
 
-                                        {/* Local Video Label */}
-                                        <div className='absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2'>
+                                        {/* Local Video Label - Reduzido para mobile */}
+                                        <div className='absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1 md:p-2'>
                                             <div className='flex items-center justify-between'>
                                                 <p className='text-white text-xs font-medium truncate'>
                                                     Você
@@ -521,18 +518,18 @@ export default function VideoCall({
                                                 <Button
                                                     variant='ghost'
                                                     size='icon'
-                                                    className='h-6 w-6 text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity'
+                                                    className='h-4 w-4 md:h-6 md:w-6 text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity'
                                                     onClick={refreshLocalVideo}
                                                 >
-                                                    <RefreshCw className='h-3 w-3' />
+                                                    <RefreshCw className='h-2 w-2 md:h-3 md:w-3' />
                                                 </Button>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Remote Video Label */}
-                                    <div className='absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2'>
-                                        <p className='text-white text-sm font-medium'>
+                                    <div className='absolute top-2 left-2 md:top-4 md:left-4 bg-black/60 backdrop-blur-sm rounded-lg px-2 py-1 md:px-3 md:py-2'>
+                                        <p className='text-white text-xs md:text-sm font-medium'>
                                             {callState.remotePeerId}
                                         </p>
                                         <p className='text-gray-300 text-xs'>
@@ -546,8 +543,8 @@ export default function VideoCall({
                         </Card>
                     </div>
 
-                    {/* Video Controls */}
-                    <div className='flex justify-center mb-6'>
+                    {/* Video Controls - Flex-shrink-0 para não diminuir */}
+                    <div className='flex justify-center flex-shrink-0 mb-2'>
                         <VideoControls
                             isVideoEnabled={callState.isVideoEnabled}
                             isAudioEnabled={callState.isAudioEnabled}
@@ -560,101 +557,12 @@ export default function VideoCall({
                         />
                     </div>
 
-                    {/* Error Message */}
+                    {/* Error Message - Compacto */}
                     {callState.error && (
-                        <div className='mb-6 p-4 bg-red-500/90 text-white rounded-lg text-center'>
+                        <div className='flex-shrink-0 p-2 md:p-4 bg-red-500/90 text-white rounded-lg text-center text-sm'>
                             {callState.error}
                         </div>
                     )}
-
-                    {/* Debug Info */}
-                    <Card className='bg-gray-800 border-gray-700'>
-                        <CardContent className='p-4'>
-                            <div className='text-white text-sm space-y-2'>
-                                <div className='font-medium'>
-                                    Debug Information:
-                                </div>
-                                <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-                                    <div>
-                                        Local Stream:{" "}
-                                        {localStream
-                                            ? "✅ Ativo"
-                                            : "❌ Inativo"}
-                                    </div>
-                                    <div>
-                                        Remote Stream:{" "}
-                                        {remoteStream
-                                            ? "✅ Ativo"
-                                            : "❌ Inativo"}
-                                    </div>
-                                    <div>
-                                        Vídeo Local:{" "}
-                                        {isVideoEnabled
-                                            ? "✅ Ligado"
-                                            : "❌ Desligado"}
-                                    </div>
-                                    <div>
-                                        Áudio Local:{" "}
-                                        {isAudioEnabled
-                                            ? "✅ Ligado"
-                                            : "❌ Desligado"}
-                                    </div>
-                                </div>
-                                {localStream && (
-                                    <div>
-                                        Local Tracks:{" "}
-                                        {localStream
-                                            .getTracks()
-                                            .map(
-                                                (t) =>
-                                                    `${t.kind}(${
-                                                        t.enabled ? "on" : "off"
-                                                    })`
-                                            )
-                                            .join(", ")}
-                                    </div>
-                                )}
-                                {remoteStream && (
-                                    <div>
-                                        Remote Tracks:{" "}
-                                        {remoteStream
-                                            .getTracks()
-                                            .map(
-                                                (t) =>
-                                                    `${t.kind}(${
-                                                        t.enabled ? "on" : "off"
-                                                    })`
-                                            )
-                                            .join(", ")}
-                                    </div>
-                                )}
-                                <div>
-                                    Current Call:{" "}
-                                    {currentCall ? "✅ Active" : "❌ None"}
-                                </div>
-                                <div>
-                                    Video Elements: Local=
-                                    {localVideoRef.current?.srcObject
-                                        ? "✅"
-                                        : "❌"}
-                                    , Remote=
-                                    {remoteVideoRef.current?.srcObject
-                                        ? "✅"
-                                        : "❌"}
-                                </div>
-                                <div>
-                                    Video Playing: Local=
-                                    {!localVideoRef.current?.paused
-                                        ? "✅"
-                                        : "❌"}
-                                    , Remote=
-                                    {!remoteVideoRef.current?.paused
-                                        ? "✅"
-                                        : "❌"}
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
                 </div>
             </div>
         );
