@@ -33,17 +33,17 @@ export default function VideoControls({
     onEndCall,
 }: VideoControlsProps) {
     return (
-        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-lg'>
+        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm'>
             <Button
                 variant={isAudioEnabled ? "default" : "destructive"}
                 size='icon'
                 onClick={onToggleAudio}
-                className='w-12 h-12 rounded-full'
+                className='w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform'
             >
                 {isAudioEnabled ? (
-                    <Mic className='w-5 h-5' />
+                    <Mic className='w-6 h-6' />
                 ) : (
-                    <MicOff className='w-5 h-5' />
+                    <MicOff className='w-6 h-6' />
                 )}
             </Button>
 
@@ -51,25 +51,26 @@ export default function VideoControls({
                 variant={isVideoEnabled ? "default" : "destructive"}
                 size='icon'
                 onClick={onToggleVideo}
-                className='w-12 h-12 rounded-full'
+                className='w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform'
             >
                 {isVideoEnabled ? (
-                    <Video className='w-5 h-5' />
+                    <Video className='w-6 h-6' />
                 ) : (
-                    <VideoOff className='w-5 h-5' />
+                    <VideoOff className='w-6 h-6' />
                 )}
             </Button>
 
+            {/* Screen Share - Hidden on very small screens */}
             <Button
                 variant={isScreenSharing ? "secondary" : "outline"}
                 size='icon'
                 onClick={onToggleScreenShare}
-                className='w-12 h-12 rounded-full'
+                className='w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform hidden sm:flex'
             >
                 {isScreenSharing ? (
-                    <MonitorOff className='w-5 h-5' />
+                    <MonitorOff className='w-6 h-6' />
                 ) : (
-                    <Monitor className='w-5 h-5' />
+                    <Monitor className='w-6 h-6' />
                 )}
             </Button>
 
@@ -78,9 +79,9 @@ export default function VideoControls({
                     variant='destructive'
                     size='icon'
                     onClick={onEndCall}
-                    className='w-12 h-12 rounded-full'
+                    className='w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform bg-red-600 hover:bg-red-700'
                 >
-                    <PhoneOff className='w-5 h-5' />
+                    <PhoneOff className='w-6 h-6' />
                 </Button>
             )}
         </div>
