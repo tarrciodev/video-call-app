@@ -13,18 +13,154 @@ export const useMediaStream = () => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-    // Initialize media stream on component mount
-    useEffect(() => {
-        const initializeMedia = async () => {
-            try {
-                await getUserMedia(true, true);
-            } catch (err) {
-                console.error("Failed to initialize media:", err);
-            }
-        };
+    // Force video element update when stream changes
+    const updateLocalVideo = useCallback((stream: MediaStream | null) => {
+        console.log(
+            "🔄 Updating local video element with stream:",
+            stream ? "present" : "null"
+        );
 
-        initializeMedia();
+        if (localVideoRef.current) {
+            // Store current srcObject to check if it changed
+            const currentSrc = localVideoRef.current.srcObject;
+
+            // Only update if the stream is different
+            if (currentSrc !== stream) {
+                console.log("🔄 Local video srcObject is changing");
+                localVideoRef.current.srcObject = stream;
+            }
+
+            if (stream) {
+                localVideoRef.current.muted = true;
+                localVideoRef.current.autoplay = true;
+                localVideoRef.current.playsInline = true;
+
+                // Force play
+                const playVideo = async () => {
+                    try {
+                        if (
+                            localVideoRef.current &&
+                            localVideoRef.current.paused
+                        ) {
+                            await localVideoRef.current.play();
+                            console.log("▶️ Local video playing");
+                        }
+                    } catch (error) {
+                        console.error("❌ Local video play error:", error);
+                    }
+                };
+
+                // Try to play immediately and after a short delay
+                playVideo();
+                setTimeout(playVideo, 100);
+            }
+        } else {
+            console.warn("⚠️ Local video ref is null");
+        }
     }, []);
+
+    const updateRemoteVideo = useCallback((stream: MediaStream | null) => {
+        console.log(
+            "🔄 Updating remote video element with stream:",
+            stream ? "present" : "null"
+        );
+
+        if (remoteVideoRef.current) {
+            // Store current srcObject to check if it changed
+            const currentSrc = remoteVideoRef.current.srcObject;
+
+            // Only update if the stream is different
+            if (currentSrc !== stream) {
+                console.log("🔄 Remote video srcObject is changing");
+                remoteVideoRef.current.srcObject = stream;
+            }
+
+            if (stream) {
+                remoteVideoRef.current.muted = false;
+                remoteVideoRef.current.autoplay = true;
+                remoteVideoRef.current.playsInline = true;
+                remoteVideoRef.current.volume = 1.0;
+
+                // Force play
+                const playVideo = async () => {
+                    try {
+                        if (
+                            remoteVideoRef.current &&
+                            remoteVideoRef.current.paused
+                        ) {
+                            await remoteVideoRef.current.play();
+                            console.log("▶️ Remote video playing");
+                        }
+                    } catch (error) {
+                        console.error("❌ Remote video play error:", error);
+                        // Try muted first if autoplay fails
+                        if (remoteVideoRef.current) {
+                            remoteVideoRef.current.muted = true;
+                            try {
+                                await remoteVideoRef.current.play();
+                                console.log("▶️ Remote video playing (muted)");
+                                // Unmute after playing
+                                setTimeout(() => {
+                                    if (remoteVideoRef.current) {
+                                        remoteVideoRef.current.muted = false;
+                                    }
+                                }, 1000);
+                            } catch (retryError) {
+                                console.error(
+                                    "❌ Remote video retry error:",
+                                    retryError
+                                );
+                            }
+                        }
+                    }
+                };
+
+                // Try to play immediately and after a short delay
+                playVideo();
+                setTimeout(playVideo, 100);
+            }
+        } else {
+            console.warn("⚠️ Remote video ref is null");
+        }
+    }, []);
+
+    // Update video elements when streams change
+    useEffect(() => {
+        console.log("🔄 Local stream changed, updating video element");
+        updateLocalVideo(localStream);
+    }, [localStream, updateLocalVideo]);
+
+    useEffect(() => {
+        console.log("🔄 Remote stream changed, updating video element");
+        updateRemoteVideo(remoteStream);
+    }, [remoteStream, updateRemoteVideo]);
+
+    // Periodically check if video elements are correctly set
+    useEffect(() => {
+        const interval = setInterval(() => {
+            // Check if local video needs updating
+            if (
+                localStream &&
+                localVideoRef.current &&
+                !localVideoRef.current.srcObject
+            ) {
+                console.log("🔄 Local video srcObject missing, restoring");
+                updateLocalVideo(localStream);
+            }
+
+            // Check if remote video needs updating
+            if (
+                remoteStream &&
+                remoteVideoRef.current &&
+                !remoteVideoRef.current.srcObject
+            ) {
+                console.log("🔄 Remote video srcObject missing, restoring");
+                updateRemoteVideo(remoteStream);
+            }
+        }, 2000);
+
+        return () => clearInterval(interval);
+    }, [localStream, remoteStream, updateLocalVideo, updateRemoteVideo]);
 
     const getUserMedia = useCallback(
         async (video = true, audio = true): Promise<MediaStream> => {
@@ -60,29 +196,15 @@ export const useMediaStream = () => {
                         kind: t.kind,
                         enabled: t.enabled,
                         readyState: t.readyState,
+                        id: t.id,
                     }))
                 );
 
                 setLocalStream(stream);
                 setIsVideoEnabled(video && stream.getVideoTracks().length > 0);
                 setIsAudioEnabled(audio && stream.getAudioTracks().length > 0);
-
-                // Set video element source immediately
-                if (localVideoRef.current) {
-                    console.log("🔗 Setting local video source");
-                    localVideoRef.current.srcObject = stream;
-                    localVideoRef.current.muted = true;
-
-                    // Force play
-                    try {
-                        await localVideoRef.current.play();
-                        console.log("▶️ Local video playing");
-                    } catch (playError) {
-                        console.error("❌ Local video play error:", playError);
-                    }
-                }
-
                 setError(null);
+
                 return stream;
             } catch (err) {
                 console.error("❌ Error accessing media devices:", err);
@@ -95,7 +217,7 @@ export const useMediaStream = () => {
         []
     );
 
-    const setRemoteStreamAndVideo = useCallback(async (stream: MediaStream) => {
+    const setRemoteStreamAndVideo = useCallback((stream: MediaStream) => {
         console.log("🌐 Setting remote stream:", stream);
         console.log(
             "📊 Remote stream tracks:",
@@ -103,36 +225,11 @@ export const useMediaStream = () => {
                 kind: t.kind,
                 enabled: t.enabled,
                 readyState: t.readyState,
+                id: t.id,
             }))
         );
 
         setRemoteStream(stream);
-
-        if (remoteVideoRef.current) {
-            console.log("🔗 Setting remote video source");
-            remoteVideoRef.current.srcObject = stream;
-            remoteVideoRef.current.muted = false; // Important: Don't mute remote video for audio
-
-            // Force play
-            try {
-                await remoteVideoRef.current.play();
-                console.log("▶️ Remote video playing");
-            } catch (playError) {
-                console.error("❌ Remote video play error:", playError);
-                // Try to play again after a short delay
-                setTimeout(async () => {
-                    try {
-                        await remoteVideoRef.current?.play();
-                        console.log("▶️ Remote video playing (retry)");
-                    } catch (retryError) {
-                        console.error(
-                            "❌ Remote video retry error:",
-                            retryError
-                        );
-                    }
-                }, 1000);
-            }
-        }
     }, []);
 
     const getScreenShare = useCallback(async (): Promise<MediaStream> => {
@@ -149,24 +246,30 @@ export const useMediaStream = () => {
 
             console.log("✅ Got screen share stream:", screenStream);
 
-            // Replace video track in local stream
+            // Create new stream with screen video and existing audio
             if (localStream) {
-                const videoTrack = screenStream.getVideoTracks()[0];
-                const oldVideoTrack = localStream.getVideoTracks()[0];
+                const newStream = new MediaStream();
 
+                // Add screen video track
+                const screenVideoTrack = screenStream.getVideoTracks()[0];
+                newStream.addTrack(screenVideoTrack);
+
+                // Keep existing audio track
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    newStream.addTrack(audioTrack);
+                }
+
+                // Stop old video track
+                const oldVideoTrack = localStream.getVideoTracks()[0];
                 if (oldVideoTrack) {
-                    localStream.removeTrack(oldVideoTrack);
                     oldVideoTrack.stop();
                 }
 
-                localStream.addTrack(videoTrack);
-
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = localStream;
-                }
+                setLocalStream(newStream);
 
                 // Handle screen share end
-                videoTrack.onended = () => {
+                screenVideoTrack.onended = () => {
                     stopScreenShare();
                 };
             }
@@ -186,7 +289,8 @@ export const useMediaStream = () => {
         try {
             console.log("🛑 Stopping screen share");
 
-            const newStream = await navigator.mediaDevices.getUserMedia({
+            // Get new camera stream
+            const newCameraStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: { ideal: 1280 },
                     height: { ideal: 720 },
@@ -199,29 +303,14 @@ export const useMediaStream = () => {
                 },
             });
 
-            if (localStream) {
-                const videoTrack = newStream.getVideoTracks()[0];
-                const oldVideoTrack = localStream.getVideoTracks()[0];
-
-                if (oldVideoTrack) {
-                    localStream.removeTrack(oldVideoTrack);
-                    oldVideoTrack.stop();
-                }
-
-                localStream.addTrack(videoTrack);
-
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = localStream;
-                }
-            }
-
+            setLocalStream(newCameraStream);
             setIsScreenSharing(false);
             setError(null);
         } catch (err) {
             console.error("❌ Error stopping screen share:", err);
             setError("Erro ao parar compartilhamento de tela");
         }
-    }, [localStream]);
+    }, []);
 
     const toggleVideo = useCallback(() => {
         console.log("🎥 Toggling video, current state:", isVideoEnabled);
@@ -276,14 +365,6 @@ export const useMediaStream = () => {
             setRemoteStream(null);
         }
 
-        if (localVideoRef.current) {
-            localVideoRef.current.srcObject = null;
-        }
-
-        if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = null;
-        }
-
         setIsScreenSharing(false);
         setIsVideoEnabled(true);
         setIsAudioEnabled(true);
@@ -299,11 +380,20 @@ export const useMediaStream = () => {
             });
             setRemoteStream(null);
         }
-
-        if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = null;
-        }
     }, [remoteStream]);
+
+    // Initialize media on mount
+    useEffect(() => {
+        const initializeMedia = async () => {
+            try {
+                await getUserMedia(true, true);
+            } catch (err) {
+                console.error("Failed to initialize media:", err);
+            }
+        };
+
+        initializeMedia();
+    }, [getUserMedia]);
 
     return {
         localStream,
@@ -323,5 +413,7 @@ export const useMediaStream = () => {
         stopAllStreams,
         clearRemoteStream,
         setError,
+        updateLocalVideo,
+        updateRemoteVideo,
     };
 };

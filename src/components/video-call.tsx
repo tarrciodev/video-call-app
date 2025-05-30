@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { useMediaStream } from "@/hooks/use-media-stream";
 import { usePeer } from "@/hooks/use-peer";
 import type { CallState } from "@/types/call";
-import { Check, Copy, LogOut, Phone } from "lucide-react";
+import { Check, Copy, LogOut, Phone, RefreshCw } from "lucide-react";
 import type Peer from "peerjs";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import IncomingCallModal from "./incoming-call-modal";
 import OutgoingCallModal from "./outgoing-call-modal";
 import VideoControls from "./video-controls";
@@ -32,8 +32,8 @@ export default function VideoCall({
         isScreenSharing: false,
         remotePeerId: null,
         error: null,
-        isConnected: true,
-        peerId: "",
+        peerId: null,
+        isConnected: false,
     });
 
     const [remoteEmailInput, setRemoteEmailInput] = useState("");
@@ -41,6 +41,10 @@ export default function VideoCall({
     const [currentCall, setCurrentCall] = useState<any>(null);
     const [incomingCall, setIncomingCall] = useState<any>(null);
     const [outgoingCall, setOutgoingCall] = useState<string | null>(null);
+    const [localVideoKey, setLocalVideoKey] = useState(Date.now());
+
+    // Ref to track if we're in a call
+    const isInCallRef = useRef(false);
 
     const { peerIdToEmail, emailToPeerId } = usePeer();
 
@@ -62,6 +66,8 @@ export default function VideoCall({
         stopAllStreams,
         clearRemoteStream,
         setError: setMediaError,
+        updateLocalVideo,
+        updateRemoteVideo,
     } = useMediaStream();
 
     // Update call state when media controls change
@@ -74,6 +80,11 @@ export default function VideoCall({
             error: mediaError,
         }));
     }, [isVideoEnabled, isAudioEnabled, isScreenSharing, mediaError]);
+
+    // Update isInCallRef when callState.isInCall changes
+    useEffect(() => {
+        isInCallRef.current = callState.isInCall;
+    }, [callState.isInCall]);
 
     // Setup incoming call handler
     useEffect(() => {
@@ -91,22 +102,63 @@ export default function VideoCall({
         };
     }, [peer]);
 
-    const acceptIncomingCall = async () => {
+    // Force refresh local video when entering/exiting call
+    useEffect(() => {
+        if (callState.isInCall && localStream) {
+            console.log("📱 In call, ensuring local video is displayed");
+            // Force video element refresh by changing key
+            setLocalVideoKey(Date.now());
+            // Ensure local video is updated
+            setTimeout(() => {
+                updateLocalVideo(localStream);
+            }, 100);
+        }
+    }, [callState.isInCall, localStream, updateLocalVideo]);
+
+    const refreshLocalVideo = useCallback(() => {
+        console.log("🔄 Manually refreshing local video");
+        if (localStream) {
+            setLocalVideoKey(Date.now());
+            setTimeout(() => {
+                updateLocalVideo(localStream);
+            }, 100);
+        }
+    }, [localStream, updateLocalVideo]);
+
+    const acceptIncomingCall = useCallback(async () => {
         if (!incomingCall) return;
 
         try {
             console.log("✅ Accepting incoming call");
 
             // Ensure we have a fresh local stream
-            const stream = localStream || (await getUserMedia(true, true));
+            let stream = localStream;
+            if (!stream) {
+                console.log("📱 Getting fresh stream for incoming call");
+                stream = await getUserMedia(true, true);
+            }
+
             console.log("📤 Answering call with stream:", stream);
+            console.log(
+                "📤 Stream tracks:",
+                stream
+                    ?.getTracks()
+                    .map((t) => ({ kind: t.kind, enabled: t.enabled }))
+            );
 
             incomingCall.answer(stream);
             setCurrentCall(incomingCall);
 
-            incomingCall.on("stream", async (remoteStream: MediaStream) => {
+            incomingCall.on("stream", (remoteStream: MediaStream) => {
                 console.log("📥 Received remote stream:", remoteStream);
-                await setRemoteStreamAndVideo(remoteStream);
+                console.log(
+                    "📥 Remote stream tracks:",
+                    remoteStream
+                        .getTracks()
+                        .map((t) => ({ kind: t.kind, enabled: t.enabled }))
+                );
+
+                setRemoteStreamAndVideo(remoteStream);
                 const callerEmail = peerIdToEmail(incomingCall.peer);
 
                 setCallState((prev) => ({
@@ -115,6 +167,11 @@ export default function VideoCall({
                     remotePeerId: callerEmail,
                     error: null,
                 }));
+
+                // Force refresh local video
+                setTimeout(() => {
+                    refreshLocalVideo();
+                }, 500);
             });
 
             incomingCall.on("close", () => {
@@ -136,17 +193,25 @@ export default function VideoCall({
             setMediaError("Erro ao responder chamada");
             setIncomingCall(null);
         }
-    };
+    }, [
+        incomingCall,
+        localStream,
+        getUserMedia,
+        setRemoteStreamAndVideo,
+        peerIdToEmail,
+        setMediaError,
+        refreshLocalVideo,
+    ]);
 
-    const rejectIncomingCall = () => {
+    const rejectIncomingCall = useCallback(() => {
         console.log("❌ Rejecting incoming call");
         if (incomingCall) {
             incomingCall.close();
             setIncomingCall(null);
         }
-    };
+    }, [incomingCall]);
 
-    const startCall = async () => {
+    const startCall = useCallback(async () => {
         if (!peer || !remoteEmailInput.trim()) return;
 
         try {
@@ -156,7 +221,12 @@ export default function VideoCall({
             setOutgoingCall(remoteEmailInput.trim());
 
             // Ensure we have a fresh local stream
-            const stream = localStream || (await getUserMedia(true, true));
+            let stream = localStream;
+            if (!stream) {
+                console.log("📱 Getting fresh stream for outgoing call");
+                stream = await getUserMedia(true, true);
+            }
+
             const remotePeerId = emailToPeerId(
                 remoteEmailInput.trim().toLowerCase()
             );
@@ -166,17 +236,30 @@ export default function VideoCall({
                 "with stream:",
                 stream
             );
+            console.log(
+                "📤 Stream tracks:",
+                stream
+                    ?.getTracks()
+                    .map((t) => ({ kind: t.kind, enabled: t.enabled }))
+            );
 
             const call = peer.call(remotePeerId, stream);
             setCurrentCall(call);
 
             // Set up call event handlers
-            call.on("stream", async (remoteStream: MediaStream) => {
+            call.on("stream", (remoteStream: MediaStream) => {
                 console.log(
                     "📥 Received remote stream from outgoing call:",
                     remoteStream
                 );
-                await setRemoteStreamAndVideo(remoteStream);
+                console.log(
+                    "📥 Remote stream tracks:",
+                    remoteStream
+                        .getTracks()
+                        .map((t) => ({ kind: t.kind, enabled: t.enabled }))
+                );
+
+                setRemoteStreamAndVideo(remoteStream);
                 setOutgoingCall(null); // Hide outgoing call modal
                 setCallState((prev) => ({
                     ...prev,
@@ -184,6 +267,11 @@ export default function VideoCall({
                     remotePeerId: remoteEmailInput.trim(),
                     error: null,
                 }));
+
+                // Force refresh local video
+                setTimeout(() => {
+                    refreshLocalVideo();
+                }, 500);
             });
 
             call.on("close", () => {
@@ -211,9 +299,17 @@ export default function VideoCall({
                 error: "Erro ao iniciar chamada. Verifique o email digitado.",
             }));
         }
-    };
+    }, [
+        peer,
+        remoteEmailInput,
+        localStream,
+        getUserMedia,
+        emailToPeerId,
+        setRemoteStreamAndVideo,
+        refreshLocalVideo,
+    ]);
 
-    const cancelOutgoingCall = () => {
+    const cancelOutgoingCall = useCallback(() => {
         console.log("❌ Canceling outgoing call");
         if (currentCall) {
             currentCall.close();
@@ -224,9 +320,9 @@ export default function VideoCall({
             ...prev,
             error: null,
         }));
-    };
+    }, [currentCall]);
 
-    const handleToggleScreenShare = async () => {
+    const handleToggleScreenShare = useCallback(async () => {
         try {
             if (isScreenSharing) {
                 await stopScreenShare();
@@ -239,9 +335,9 @@ export default function VideoCall({
                 error: "Erro ao compartilhar tela",
             }));
         }
-    };
+    }, [isScreenSharing, stopScreenShare, getScreenShare]);
 
-    const endCall = () => {
+    const endCall = useCallback(() => {
         console.log("📞 Ending call");
 
         if (currentCall) {
@@ -261,7 +357,12 @@ export default function VideoCall({
         }));
 
         setOutgoingCall(null);
-    };
+
+        // Force refresh local video after ending call
+        setTimeout(() => {
+            refreshLocalVideo();
+        }, 500);
+    }, [currentCall, clearRemoteStream, refreshLocalVideo]);
 
     const copyEmail = async () => {
         await navigator.clipboard.writeText(userEmail);
@@ -272,92 +373,22 @@ export default function VideoCall({
     // Layout when in call - Side by Side Videos
     if (callState.isInCall) {
         return (
-            <div className='min-h-screen bg-gray-900 p-4'>
+            <div className='min-h-screen bg-gray-900 p-2 md:p-4'>
                 <div className='max-w-7xl mx-auto'>
                     {/* Header */}
-                    <div className='text-center mb-6'>
-                        <h1 className='text-2xl font-bold text-white mb-2'>
+                    <div className='text-center mb-4 md:mb-6'>
+                        <h1 className='text-xl md:text-2xl font-bold text-white mb-2'>
                             Em chamada com {callState.remotePeerId}
                         </h1>
-                        <p className='text-gray-300'>
+                        <p className='text-gray-300 text-sm'>
                             {remoteStream ? "Conectado" : "Conectando..."}
                         </p>
                     </div>
 
-                    {/* Side by Side Videos */}
-                    <div className='grid grid-cols-1 md:grid-cols-2 gap-6 mb-8'>
-                        {/* Local Video */}
+                    {/* Main Video Layout - Guest takes full space, local video as overlay */}
+                    <div className='relative mb-8'>
+                        {/* Remote Video - Full Screen */}
                         <Card className='bg-black border-gray-700'>
-                            <CardHeader className='pb-2'>
-                                <CardTitle className='text-white text-center text-sm'>
-                                    Você ({userEmail})
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className='p-4'>
-                                <div className='aspect-video bg-gray-800 rounded-lg overflow-hidden relative'>
-                                    <video
-                                        ref={localVideoRef}
-                                        autoPlay
-                                        muted={true}
-                                        playsInline
-                                        controls={false}
-                                        className='w-full h-full object-cover'
-                                        onCanPlay={() => {
-                                            console.log(
-                                                "📺 Local video can play"
-                                            );
-                                        }}
-                                        onPlaying={() => {
-                                            console.log(
-                                                "▶️ Local video is playing"
-                                            );
-                                        }}
-                                        onError={(e) => {
-                                            console.error(
-                                                "❌ Local video error:",
-                                                e
-                                            );
-                                        }}
-                                    />
-                                    {!callState.isVideoEnabled && (
-                                        <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
-                                            <div className='text-white text-center'>
-                                                <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
-                                                    <span className='text-2xl'>
-                                                        👤
-                                                    </span>
-                                                </div>
-                                                <p className='text-sm'>
-                                                    Câmera desligada
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {!localStream && (
-                                        <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
-                                            <div className='text-white text-center'>
-                                                <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
-                                                    <span className='text-2xl'>
-                                                        ⚠️
-                                                    </span>
-                                                </div>
-                                                <p className='text-sm'>
-                                                    Carregando câmera...
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        {/* Remote Video */}
-                        <Card className='bg-black border-gray-700'>
-                            <CardHeader className='pb-2'>
-                                <CardTitle className='text-white text-center text-sm'>
-                                    {callState.remotePeerId}
-                                </CardTitle>
-                            </CardHeader>
                             <CardContent className='p-4'>
                                 <div className='aspect-video bg-gray-800 rounded-lg overflow-hidden relative'>
                                     <video
@@ -366,7 +397,25 @@ export default function VideoCall({
                                         playsInline
                                         controls={false}
                                         muted={false}
-                                        className='w-full h-full object-cover'
+                                        className='w-full h-full object-cover bg-gray-800'
+                                        onLoadedMetadata={() => {
+                                            console.log(
+                                                "📺 Remote video metadata loaded"
+                                            );
+                                            if (
+                                                remoteVideoRef.current &&
+                                                remoteVideoRef.current.paused
+                                            ) {
+                                                remoteVideoRef.current
+                                                    .play()
+                                                    .catch((e) =>
+                                                        console.error(
+                                                            "Play error:",
+                                                            e
+                                                        )
+                                                    );
+                                            }
+                                        }}
                                         onCanPlay={() => {
                                             console.log(
                                                 "📺 Remote video can play"
@@ -393,9 +442,105 @@ export default function VideoCall({
                                                 <p className='text-sm'>
                                                     Aguardando vídeo...
                                                 </p>
+                                                <p className='text-xs text-gray-400 mt-1'>
+                                                    {callState.remotePeerId}
+                                                </p>
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Local Video Overlay - Picture in Picture */}
+                                    <div className='absolute top-2 right-2 md:top-4 md:right-4 w-32 h-24 md:w-48 md:h-36 bg-black rounded-lg overflow-hidden border-2 border-white/30 shadow-2xl z-10 group hover:scale-105 transition-transform duration-200'>
+                                        <video
+                                            key={localVideoKey}
+                                            ref={localVideoRef}
+                                            autoPlay
+                                            muted={true}
+                                            playsInline
+                                            controls={false}
+                                            className='w-full h-full object-cover bg-gray-800'
+                                            onLoadedMetadata={() => {
+                                                console.log(
+                                                    "📺 Local video metadata loaded"
+                                                );
+                                                if (
+                                                    localVideoRef.current &&
+                                                    localVideoRef.current.paused
+                                                ) {
+                                                    localVideoRef.current
+                                                        .play()
+                                                        .catch((e) =>
+                                                            console.error(
+                                                                "Play error:",
+                                                                e
+                                                            )
+                                                        );
+                                                }
+                                            }}
+                                            onCanPlay={() => {
+                                                console.log(
+                                                    "📺 Local video can play"
+                                                );
+                                            }}
+                                            onPlaying={() => {
+                                                console.log(
+                                                    "▶️ Local video is playing"
+                                                );
+                                            }}
+                                            onError={(e) => {
+                                                console.error(
+                                                    "❌ Local video error:",
+                                                    e
+                                                );
+                                            }}
+                                        />
+                                        {(!localStream ||
+                                            !callState.isVideoEnabled) && (
+                                            <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
+                                                <div className='text-white text-center'>
+                                                    <div className='w-8 h-8 bg-gray-600 rounded-full mx-auto mb-1 flex items-center justify-center'>
+                                                        <span className='text-sm'>
+                                                            👤
+                                                        </span>
+                                                    </div>
+                                                    <p className='text-xs'>
+                                                        {!localStream
+                                                            ? "Carregando..."
+                                                            : "Câmera off"}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Local Video Label */}
+                                        <div className='absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2'>
+                                            <div className='flex items-center justify-between'>
+                                                <p className='text-white text-xs font-medium truncate'>
+                                                    Você
+                                                </p>
+                                                <Button
+                                                    variant='ghost'
+                                                    size='icon'
+                                                    className='h-6 w-6 text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity'
+                                                    onClick={refreshLocalVideo}
+                                                >
+                                                    <RefreshCw className='h-3 w-3' />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Remote Video Label */}
+                                    <div className='absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2'>
+                                        <p className='text-white text-sm font-medium'>
+                                            {callState.remotePeerId}
+                                        </p>
+                                        <p className='text-gray-300 text-xs'>
+                                            {remoteStream
+                                                ? "Conectado"
+                                                : "Conectando..."}
+                                        </p>
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>
@@ -422,76 +567,94 @@ export default function VideoCall({
                         </div>
                     )}
 
-                    {/* Debug Info (Development only) */}
-                    {process.env.NODE_ENV === "development" && (
-                        <Card className='bg-gray-800 border-gray-700'>
-                            <CardContent className='p-4'>
-                                <div className='text-white text-sm space-y-2'>
-                                    <div className='font-medium'>
-                                        Debug Information:
-                                    </div>
-                                    <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-                                        <div>
-                                            Local Stream:{" "}
-                                            {localStream
-                                                ? "✅ Ativo"
-                                                : "❌ Inativo"}
-                                        </div>
-                                        <div>
-                                            Remote Stream:{" "}
-                                            {remoteStream
-                                                ? "✅ Ativo"
-                                                : "❌ Inativo"}
-                                        </div>
-                                        <div>
-                                            Vídeo Local:{" "}
-                                            {isVideoEnabled
-                                                ? "✅ Ligado"
-                                                : "❌ Desligado"}
-                                        </div>
-                                        <div>
-                                            Áudio Local:{" "}
-                                            {isAudioEnabled
-                                                ? "✅ Ligado"
-                                                : "❌ Desligado"}
-                                        </div>
-                                    </div>
-                                    {localStream && (
-                                        <div>
-                                            Local Tracks:{" "}
-                                            {localStream
-                                                .getTracks()
-                                                .map(
-                                                    (t) =>
-                                                        `${t.kind}(${
-                                                            t.enabled
-                                                                ? "on"
-                                                                : "off"
-                                                        })`
-                                                )
-                                                .join(", ")}
-                                        </div>
-                                    )}
-                                    {remoteStream && (
-                                        <div>
-                                            Remote Tracks:{" "}
-                                            {remoteStream
-                                                .getTracks()
-                                                .map(
-                                                    (t) =>
-                                                        `${t.kind}(${
-                                                            t.enabled
-                                                                ? "on"
-                                                                : "off"
-                                                        })`
-                                                )
-                                                .join(", ")}
-                                        </div>
-                                    )}
+                    {/* Debug Info */}
+                    <Card className='bg-gray-800 border-gray-700'>
+                        <CardContent className='p-4'>
+                            <div className='text-white text-sm space-y-2'>
+                                <div className='font-medium'>
+                                    Debug Information:
                                 </div>
-                            </CardContent>
-                        </Card>
-                    )}
+                                <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
+                                    <div>
+                                        Local Stream:{" "}
+                                        {localStream
+                                            ? "✅ Ativo"
+                                            : "❌ Inativo"}
+                                    </div>
+                                    <div>
+                                        Remote Stream:{" "}
+                                        {remoteStream
+                                            ? "✅ Ativo"
+                                            : "❌ Inativo"}
+                                    </div>
+                                    <div>
+                                        Vídeo Local:{" "}
+                                        {isVideoEnabled
+                                            ? "✅ Ligado"
+                                            : "❌ Desligado"}
+                                    </div>
+                                    <div>
+                                        Áudio Local:{" "}
+                                        {isAudioEnabled
+                                            ? "✅ Ligado"
+                                            : "❌ Desligado"}
+                                    </div>
+                                </div>
+                                {localStream && (
+                                    <div>
+                                        Local Tracks:{" "}
+                                        {localStream
+                                            .getTracks()
+                                            .map(
+                                                (t) =>
+                                                    `${t.kind}(${
+                                                        t.enabled ? "on" : "off"
+                                                    })`
+                                            )
+                                            .join(", ")}
+                                    </div>
+                                )}
+                                {remoteStream && (
+                                    <div>
+                                        Remote Tracks:{" "}
+                                        {remoteStream
+                                            .getTracks()
+                                            .map(
+                                                (t) =>
+                                                    `${t.kind}(${
+                                                        t.enabled ? "on" : "off"
+                                                    })`
+                                            )
+                                            .join(", ")}
+                                    </div>
+                                )}
+                                <div>
+                                    Current Call:{" "}
+                                    {currentCall ? "✅ Active" : "❌ None"}
+                                </div>
+                                <div>
+                                    Video Elements: Local=
+                                    {localVideoRef.current?.srcObject
+                                        ? "✅"
+                                        : "❌"}
+                                    , Remote=
+                                    {remoteVideoRef.current?.srcObject
+                                        ? "✅"
+                                        : "❌"}
+                                </div>
+                                <div>
+                                    Video Playing: Local=
+                                    {!localVideoRef.current?.paused
+                                        ? "✅"
+                                        : "❌"}
+                                    , Remote=
+                                    {!remoteVideoRef.current?.paused
+                                        ? "✅"
+                                        : "❌"}
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
         );
@@ -655,12 +818,31 @@ export default function VideoCall({
                             <CardContent className='p-6'>
                                 <div className='aspect-video bg-gray-900 rounded-lg overflow-hidden mb-4 relative'>
                                     <video
+                                        key={localVideoKey}
                                         ref={localVideoRef}
                                         autoPlay
                                         muted={true}
                                         playsInline
                                         controls={false}
-                                        className='w-full h-full object-cover'
+                                        className='w-full h-full object-cover bg-gray-800'
+                                        onLoadedMetadata={() => {
+                                            console.log(
+                                                "📺 Preview video metadata loaded"
+                                            );
+                                            if (
+                                                localVideoRef.current &&
+                                                localVideoRef.current.paused
+                                            ) {
+                                                localVideoRef.current
+                                                    .play()
+                                                    .catch((e) =>
+                                                        console.error(
+                                                            "Play error:",
+                                                            e
+                                                        )
+                                                    );
+                                            }
+                                        }}
                                         onCanPlay={() => {
                                             console.log(
                                                 "📺 Preview video can play"
@@ -678,7 +860,7 @@ export default function VideoCall({
                                             );
                                         }}
                                     />
-                                    {!isVideoEnabled && (
+                                    {(!localStream || !isVideoEnabled) && (
                                         <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
                                             <div className='text-white text-center'>
                                                 <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
@@ -687,21 +869,9 @@ export default function VideoCall({
                                                     </span>
                                                 </div>
                                                 <p className='text-sm'>
-                                                    Câmera desligada
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {!localStream && (
-                                        <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
-                                            <div className='text-white text-center'>
-                                                <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
-                                                    <span className='text-2xl'>
-                                                        ⚠️
-                                                    </span>
-                                                </div>
-                                                <p className='text-sm'>
-                                                    Carregando câmera...
+                                                    {!localStream
+                                                        ? "Carregando câmera..."
+                                                        : "Câmera desligada"}
                                                 </p>
                                             </div>
                                         </div>
