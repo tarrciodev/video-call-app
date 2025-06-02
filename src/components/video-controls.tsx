@@ -55,10 +55,10 @@ export default function VideoControls({
 
     useEffect(() => {
         if (checkScreenShareSupport) {
-            const support = checkScreenShareSupport();
-            setScreenShareSupport(support);
-            // Log for debugging
-            console.log("Screen share support:", support);
+            // const support = checkScreenShareSupport();
+            // setScreenShareSupport(support);
+            // // Log for debugging
+            // console.log("Screen share support:", support);
         }
     }, [checkScreenShareSupport]);
 
