@@ -9,6 +9,8 @@ export const useMediaStream = () => {
     const [isAudioEnabled, setIsAudioEnabled] = useState(true);
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [currentPeerConnection, setCurrentPeerConnection] =
+        useState<any>(null);
 
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -217,20 +219,28 @@ export const useMediaStream = () => {
         []
     );
 
-    const setRemoteStreamAndVideo = useCallback((stream: MediaStream) => {
-        console.log("🌐 Setting remote stream:", stream);
-        console.log(
-            "📊 Remote stream tracks:",
-            stream.getTracks().map((t) => ({
-                kind: t.kind,
-                enabled: t.enabled,
-                readyState: t.readyState,
-                id: t.id,
-            }))
-        );
+    const setRemoteStreamAndVideo = useCallback(
+        (stream: MediaStream, peerConnection?: any) => {
+            console.log("🌐 Setting remote stream:", stream);
+            console.log(
+                "📊 Remote stream tracks:",
+                stream.getTracks().map((t) => ({
+                    kind: t.kind,
+                    enabled: t.enabled,
+                    readyState: t.readyState,
+                    id: t.id,
+                }))
+            );
 
-        setRemoteStream(stream);
-    }, []);
+            setRemoteStream(stream);
+
+            // Store the peer connection for later use (screen sharing)
+            if (peerConnection) {
+                setCurrentPeerConnection(peerConnection);
+            }
+        },
+        []
+    );
 
     const getScreenShare = useCallback(async (): Promise<MediaStream> => {
         try {
@@ -240,11 +250,21 @@ export const useMediaStream = () => {
                 video: {
                     width: { ideal: 1920 },
                     height: { ideal: 1080 },
+                    frameRate: { ideal: 30 },
                 },
                 audio: true,
             });
 
             console.log("✅ Got screen share stream:", screenStream);
+            console.log(
+                "📊 Screen share tracks:",
+                screenStream.getTracks().map((t) => ({
+                    kind: t.kind,
+                    enabled: t.enabled,
+                    readyState: t.readyState,
+                    id: t.id,
+                }))
+            );
 
             // Create new stream with screen video and existing audio
             if (localStream) {
@@ -266,7 +286,35 @@ export const useMediaStream = () => {
                     oldVideoTrack.stop();
                 }
 
+                // Update local stream with screen share
                 setLocalStream(newStream);
+
+                // If we're in a call, we need to replace the track in the peer connection
+                if (currentPeerConnection) {
+                    console.log("🔄 Replacing video track in peer connection");
+
+                    const senders = currentPeerConnection.getSenders();
+                    const videoSender = senders.find(
+                        (sender: RTCRtpSender) =>
+                            sender.track && sender.track.kind === "video"
+                    );
+
+                    if (videoSender) {
+                        console.log("🔄 Found video sender, replacing track");
+                        videoSender
+                            .replaceTrack(screenVideoTrack)
+                            .then(() =>
+                                console.log("✅ Track replaced successfully")
+                            )
+                            .catch((err: any) =>
+                                console.error("❌ Error replacing track:", err)
+                            );
+                    } else {
+                        console.warn(
+                            "⚠️ No video sender found in peer connection"
+                        );
+                    }
+                }
 
                 // Handle screen share end
                 screenVideoTrack.onended = () => {
@@ -283,7 +331,7 @@ export const useMediaStream = () => {
             setError(errorMessage);
             throw new Error(errorMessage);
         }
-    }, [localStream]);
+    }, [localStream, currentPeerConnection]);
 
     const stopScreenShare = useCallback(async () => {
         try {
@@ -303,14 +351,49 @@ export const useMediaStream = () => {
                 },
             });
 
+            // Update local stream with camera
             setLocalStream(newCameraStream);
+
+            // If we're in a call, we need to replace the track in the peer connection
+            if (currentPeerConnection) {
+                console.log(
+                    "🔄 Replacing screen share track with camera track in peer connection"
+                );
+
+                const senders = currentPeerConnection.getSenders();
+                const videoSender = senders.find(
+                    (sender: RTCRtpSender) =>
+                        sender.track && sender.track.kind === "video"
+                );
+
+                if (videoSender && newCameraStream.getVideoTracks()[0]) {
+                    console.log(
+                        "🔄 Found video sender, replacing track with camera"
+                    );
+                    videoSender
+                        .replaceTrack(newCameraStream.getVideoTracks()[0])
+                        .then(() =>
+                            console.log(
+                                "✅ Track replaced successfully with camera"
+                            )
+                        )
+                        .catch((err: any) =>
+                            console.error("❌ Error replacing track:", err)
+                        );
+                } else {
+                    console.warn(
+                        "⚠️ No video sender found in peer connection or no camera track"
+                    );
+                }
+            }
+
             setIsScreenSharing(false);
             setError(null);
         } catch (err) {
             console.error("❌ Error stopping screen share:", err);
             setError("Erro ao parar compartilhamento de tela");
         }
-    }, []);
+    }, [currentPeerConnection]);
 
     const toggleVideo = useCallback(() => {
         console.log("🎥 Toggling video, current state:", isVideoEnabled);
@@ -365,6 +448,7 @@ export const useMediaStream = () => {
             setRemoteStream(null);
         }
 
+        setCurrentPeerConnection(null);
         setIsScreenSharing(false);
         setIsVideoEnabled(true);
         setIsAudioEnabled(true);
@@ -380,6 +464,8 @@ export const useMediaStream = () => {
             });
             setRemoteStream(null);
         }
+
+        setCurrentPeerConnection(null);
     }, [remoteStream]);
 
     // Initialize media on mount
@@ -415,5 +501,6 @@ export const useMediaStream = () => {
         setError,
         updateLocalVideo,
         updateRemoteVideo,
+        setCurrentPeerConnection,
     };
 };

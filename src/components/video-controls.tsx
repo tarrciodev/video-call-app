@@ -60,12 +60,12 @@ export default function VideoControls({
                 )}
             </Button>
 
-            {/* Screen Share - Hidden on very small screens */}
+            {/* Screen Share - Now visible on all devices */}
             <Button
                 variant={isScreenSharing ? "secondary" : "outline"}
                 size='icon'
                 onClick={onToggleScreenShare}
-                className='w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform hidden sm:flex'
+                className='w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform'
             >
                 {isScreenSharing ? (
                     <MonitorOff className='w-6 h-6' />
