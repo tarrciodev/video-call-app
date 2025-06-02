@@ -26,6 +26,12 @@ export const useMediaStream = () => {
         }
     }, []);
 
+    const isMobileDevice = useCallback(() => {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+            navigator.userAgent
+        );
+    }, []);
+
     // Force video element update when stream changes
     const updateLocalVideo = useCallback((stream: MediaStream | null) => {
         console.log(
@@ -227,17 +233,26 @@ export const useMediaStream = () => {
             window.location.protocol === "https:" ||
             window.location.hostname === "localhost";
         const inIframe = isRunningInIframe();
-        const hasPermissionPolicy = inIframe;
+        const isMobile = isMobileDevice();
+
+        // Para mobile, verificar se o navegador suporta getDisplayMedia
+        const mobileSupport = isMobile && isSupported;
 
         return {
             isSupported,
             isSecure,
             isHttps,
             inIframe,
-            hasPermissionPolicy,
-            canUse: isSupported && isSecure && !hasPermissionPolicy,
+            isMobile,
+            mobileSupport,
+            hasPermissionPolicy: inIframe,
+            canUse:
+                isSupported &&
+                isSecure &&
+                !inIframe &&
+                (mobileSupport || !isMobile),
         };
-    }, [isRunningInIframe]);
+    }, [isRunningInIframe, isMobileDevice]);
 
     const getScreenShare = useCallback(async (): Promise<MediaStream> => {
         try {
@@ -263,20 +278,58 @@ export const useMediaStream = () => {
                 );
             }
 
+            if (support.isMobile && !support.mobileSupport) {
+                throw new Error(
+                    "Compartilhamento de tela não é suportado neste navegador móvel. Tente usar Chrome ou Firefox no Android."
+                );
+            }
+
             let screenStream: MediaStream;
 
             try {
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                // Configurações otimizadas para incluir áudio do sistema
+                const displayMediaOptions: DisplayMediaStreamOptions = {
                     video: {
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 },
-                        frameRate: { ideal: 30 },
+                        width: { ideal: 1920, max: 1920 },
+                        height: { ideal: 1080, max: 1080 },
+                        frameRate: { ideal: 30, max: 30 },
                     },
                     audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
+                        echoCancellation: false, // Desabilitar para áudio do sistema
+                        noiseSuppression: false, // Desabilitar para áudio do sistema
+                        autoGainControl: false, // Desabilitar para áudio do sistema
+                        sampleRate: 48000, // Taxa de amostragem mais alta para melhor qualidade
+                        channelCount: 2, // Estéreo
                     },
+                };
+
+                // Para mobile, usar configurações mais simples
+                if (support.isMobile) {
+                    displayMediaOptions.video = {
+                        width: { ideal: 1280, max: 1280 },
+                        height: { ideal: 720, max: 720 },
+                        frameRate: { ideal: 15, max: 30 },
+                    };
+                }
+
+                screenStream = await navigator.mediaDevices.getDisplayMedia(
+                    displayMediaOptions
+                );
+
+                console.log("✅ Got screen share stream:", screenStream);
+                console.log("📊 Screen share tracks:", {
+                    video: screenStream.getVideoTracks().length,
+                    audio: screenStream.getAudioTracks().length,
+                });
+
+                // Log das configurações dos tracks de áudio
+                screenStream.getAudioTracks().forEach((track, index) => {
+                    console.log(`🔊 Audio track ${index}:`, {
+                        label: track.label,
+                        kind: track.kind,
+                        enabled: track.enabled,
+                        settings: track.getSettings(),
+                    });
                 });
             } catch (permissionError: any) {
                 console.error(
@@ -289,9 +342,15 @@ export const useMediaStream = () => {
                         "Permissão negada para compartilhar tela. Clique em 'Permitir' quando solicitado."
                     );
                 } else if (permissionError.name === "NotSupportedError") {
-                    throw new Error(
-                        "Compartilhamento de tela não é suportado neste dispositivo"
-                    );
+                    if (support.isMobile) {
+                        throw new Error(
+                            "Compartilhamento de tela não é suportado neste dispositivo móvel. Tente usar um navegador mais recente."
+                        );
+                    } else {
+                        throw new Error(
+                            "Compartilhamento de tela não é suportado neste dispositivo"
+                        );
+                    }
                 } else if (
                     permissionError.message?.includes("permissions policy")
                 ) {
@@ -312,8 +371,6 @@ export const useMediaStream = () => {
                 }
             }
 
-            console.log("✅ Got screen share stream:", screenStream);
-
             // Salvar o stream remoto original antes de substituir
             const originalRemoteStream = remoteStream;
 
@@ -327,19 +384,35 @@ export const useMediaStream = () => {
                 const screenVideoTrack = screenStream.getVideoTracks()[0];
                 if (screenVideoTrack) {
                     newStream.addTrack(screenVideoTrack);
+                    console.log("✅ Added screen video track to local stream");
                 }
 
-                // Adicionar áudio da tela se disponível, senão usar áudio do microfone
+                // Priorizar áudio da tela (áudio do sistema) sobre microfone
                 const screenAudioTrack = screenStream.getAudioTracks()[0];
                 if (screenAudioTrack) {
-                    console.log("✅ Using screen audio");
+                    console.log("✅ Using screen audio (system audio)");
                     newStream.addTrack(screenAudioTrack);
+
+                    // Parar áudio do microfone se temos áudio da tela
+                    const micAudioTrack = localStream.getAudioTracks()[0];
+                    if (micAudioTrack) {
+                        console.log(
+                            "🔇 Stopping microphone audio in favor of system audio"
+                        );
+                        micAudioTrack.stop();
+                    }
                 } else {
                     // Se não há áudio da tela, manter o áudio do microfone
                     const micAudioTrack = localStream.getAudioTracks()[0];
                     if (micAudioTrack) {
-                        console.log("✅ Using microphone audio");
+                        console.log(
+                            "🎤 Using microphone audio (no system audio available)"
+                        );
                         newStream.addTrack(micAudioTrack);
+                    } else {
+                        console.log(
+                            "⚠️ No audio available from screen or microphone"
+                        );
                     }
                 }
 
@@ -347,14 +420,6 @@ export const useMediaStream = () => {
                 const oldVideoTrack = localStream.getVideoTracks()[0];
                 if (oldVideoTrack) {
                     oldVideoTrack.stop();
-                }
-
-                // Parar track de áudio antigo apenas se temos áudio da tela
-                if (screenAudioTrack) {
-                    const oldAudioTrack = localStream.getAudioTracks()[0];
-                    if (oldAudioTrack) {
-                        oldAudioTrack.stop();
-                    }
                 }
 
                 setLocalStream(newStream);
@@ -372,24 +437,29 @@ export const useMediaStream = () => {
                                 sender.track && sender.track.kind === "video"
                         );
                         if (videoSender && screenVideoTrack) {
-                            console.log("🔄 Replacing video track");
+                            console.log("🔄 Replacing video track with screen");
                             await videoSender.replaceTrack(screenVideoTrack);
                             console.log("✅ Video track replaced successfully");
                         }
 
-                        // Substituir track de áudio se temos áudio da tela
-                        if (screenAudioTrack) {
-                            const audioSender = senders.find(
-                                (sender: RTCRtpSender) =>
-                                    sender.track &&
-                                    sender.track.kind === "audio"
-                            );
-                            if (audioSender) {
+                        // Substituir track de áudio
+                        const audioSender = senders.find(
+                            (sender: RTCRtpSender) =>
+                                sender.track && sender.track.kind === "audio"
+                        );
+                        if (audioSender) {
+                            const audioTrackToSend =
+                                screenAudioTrack ||
+                                newStream.getAudioTracks()[0];
+                            if (audioTrackToSend) {
                                 console.log(
-                                    "🔄 Replacing audio track with screen audio"
+                                    "🔄 Replacing audio track with",
+                                    screenAudioTrack
+                                        ? "system audio"
+                                        : "microphone audio"
                                 );
                                 await audioSender.replaceTrack(
-                                    screenAudioTrack
+                                    audioTrackToSend
                                 );
                                 console.log(
                                     "✅ Audio track replaced successfully"

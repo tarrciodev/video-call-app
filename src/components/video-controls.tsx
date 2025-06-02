@@ -8,6 +8,7 @@ import {
     Monitor,
     MonitorOff,
     PhoneOff,
+    Smartphone,
     Video,
     VideoOff,
 } from "lucide-react";
@@ -26,6 +27,8 @@ interface VideoControlsProps {
         isSupported: boolean;
         isSecure: boolean;
         canUse: boolean;
+        isMobile?: boolean;
+        mobileSupport?: boolean;
         inIframe?: boolean;
         hasPermissionPolicy?: boolean;
     };
@@ -46,6 +49,8 @@ export default function VideoControls({
         isSupported: true,
         isSecure: true,
         canUse: true,
+        isMobile: false,
+        mobileSupport: false,
     });
 
     useEffect(() => {
@@ -69,10 +74,35 @@ export default function VideoControls({
                 alert(
                     "Compartilhamento de tela não funciona em previews ou iframes. Por favor, abra o aplicativo em uma nova aba."
                 );
+            } else if (
+                screenShareSupport.isMobile &&
+                !screenShareSupport.mobileSupport
+            ) {
+                alert(
+                    "Compartilhamento de tela não é suportado neste navegador móvel. Tente usar Chrome ou Firefox mais recente no Android."
+                );
             }
             return;
         }
         onToggleScreenShare();
+    };
+
+    const getScreenShareTooltip = () => {
+        if (!screenShareSupport.canUse) {
+            if (
+                screenShareSupport.isMobile &&
+                !screenShareSupport.mobileSupport
+            ) {
+                return "Não suportado neste navegador móvel";
+            } else if (screenShareSupport.inIframe) {
+                return "Abra em nova aba para compartilhar tela";
+            } else if (!screenShareSupport.isSupported) {
+                return "Não suportado neste navegador";
+            } else if (!screenShareSupport.isSecure) {
+                return "Requer conexão HTTPS";
+            }
+        }
+        return isScreenSharing ? "Parar compartilhamento" : "Compartilhar tela";
     };
 
     return (
@@ -103,7 +133,7 @@ export default function VideoControls({
                 )}
             </Button>
 
-            {/* Screen Share - Now with better error handling */}
+            {/* Screen Share - Melhorado para mobile */}
             <div className='relative'>
                 <Button
                     variant={isScreenSharing ? "secondary" : "outline"}
@@ -115,6 +145,7 @@ export default function VideoControls({
                             ? "opacity-50 cursor-not-allowed"
                             : ""
                     }`}
+                    title={getScreenShareTooltip()}
                 >
                     {isScreenSharing ? (
                         <MonitorOff className='w-6 h-6' />
@@ -123,15 +154,28 @@ export default function VideoControls({
                     )}
                 </Button>
 
-                {!screenShareSupport.canUse && screenShareSupport.inIframe && (
-                    <div className='absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap'>
-                        Abra em uma nova aba para compartilhar tela
+                {/* Indicador visual para diferentes estados */}
+                {!screenShareSupport.canUse && (
+                    <div className='absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center'>
+                        {screenShareSupport.isMobile ? (
+                            <Smartphone className='w-3 h-3 text-white' />
+                        ) : (
+                            <AlertTriangle className='w-3 h-3 text-white' />
+                        )}
                     </div>
                 )}
 
-                {!screenShareSupport.canUse && (
-                    <div className='absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center'>
-                        <AlertTriangle className='w-3 h-3 text-white' />
+                {/* Tooltip para mobile */}
+                {screenShareSupport.isMobile &&
+                    !screenShareSupport.mobileSupport && (
+                        <div className='absolute -top-16 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none'>
+                            Use Chrome/Firefox no Android
+                        </div>
+                    )}
+
+                {screenShareSupport.inIframe && (
+                    <div className='absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none'>
+                        Abra em uma nova aba
                     </div>
                 )}
             </div>
