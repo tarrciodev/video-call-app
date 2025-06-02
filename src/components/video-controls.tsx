@@ -48,7 +48,7 @@ export default function VideoControls({
     const [screenShareSupport, setScreenShareSupport] = useState<any>({
         isSupported: true,
         isSecure: true,
-        // canUse: true,
+        canUse: true,
         // isMobile: false,
         // mobileSupport: false,
     });
