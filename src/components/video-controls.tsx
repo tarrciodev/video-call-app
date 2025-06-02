@@ -123,7 +123,7 @@ export default function VideoControls({
     };
 
     return (
-        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm fixed top-20 right-12'>
+        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm fixed bottom-20 right-12'>
             <Button
                 variant={isAudioEnabled ? "default" : "destructive"}
                 size='icon'
