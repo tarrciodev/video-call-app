@@ -1,5 +1,7 @@
 "use client";
 
+import type React from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,17 +9,61 @@ import { Input } from "@/components/ui/input";
 import { useMediaStream } from "@/hooks/use-media-stream";
 import { usePeer } from "@/hooks/use-peer";
 import type { CallState } from "@/types/call";
-import { Check, Copy, LogOut, Phone, RefreshCw } from "lucide-react";
+import {
+    AlertCircle,
+    Check,
+    Copy,
+    LogOut,
+    Phone,
+    RefreshCw,
+} from "lucide-react";
 import type Peer from "peerjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import IncomingCallModal from "./incoming-call-modal";
 import OutgoingCallModal from "./outgoing-call-modal";
 import VideoControls from "./video-controls";
 
+function OpenInNewTabButton() {
+    const handleOpenInNewTab = () => {
+        const url = window.location.href;
+        window.open(url, "_blank");
+    };
+
+    return (
+        <Button
+            onClick={handleOpenInNewTab}
+            variant='outline'
+            className='flex items-center gap-2 mx-auto mb-4'
+        >
+            <svg
+                xmlns='http://www.w3.org/2000/svg'
+                width='16'
+                height='16'
+                viewBox='0 0 24 24'
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+            >
+                <path d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'></path>
+                <polyline points='15 3 21 3 21 9'></polyline>
+                <line x1='10' y1='14' x2='21' y2='3'></line>
+            </svg>
+            Abrir em nova aba para compartilhar tela
+        </Button>
+    );
+}
+
 interface VideoCallProps {
     userEmail: string;
     peer: Peer;
     onLogout: () => void;
+}
+
+interface Position {
+    x: number;
+    y: number;
 }
 
 export default function VideoCall({
@@ -42,9 +88,22 @@ export default function VideoCall({
     const [incomingCall, setIncomingCall] = useState<any>(null);
     const [outgoingCall, setOutgoingCall] = useState<string | null>(null);
     const [localVideoKey, setLocalVideoKey] = useState(Date.now());
+    const [showControls, setShowControls] = useState(true);
+    const [isMobile, setIsMobile] = useState(false);
 
-    // Ref to track if we're in a call
+    // Estados para drag and drop do vídeo local
+    const [localVideoPosition, setLocalVideoPosition] = useState<Position>({
+        x: 0,
+        y: 0,
+    });
+    const [isDragging, setIsDragging] = useState(false);
+    const [dragOffset, setDragOffset] = useState<Position>({ x: 0, y: 0 });
+    const [isPositioned, setIsPositioned] = useState(false);
+
     const isInCallRef = useRef(false);
+    const controlsTimeoutRef = useRef<NodeJS.Timeout>(null);
+    const localVideoContainerRef = useRef<HTMLDivElement>(null);
+    const videoContainerRef = useRef<HTMLDivElement>(null);
 
     const { peerIdToEmail, emailToPeerId } = usePeer();
 
@@ -69,9 +128,260 @@ export default function VideoCall({
         updateLocalVideo,
         updateRemoteVideo,
         setCurrentPeerConnection,
+        checkScreenShareSupport,
     } = useMediaStream();
 
-    // Update call state when media controls change
+    // Detectar se é mobile
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+
+        checkMobile();
+        window.addEventListener("resize", checkMobile);
+        return () => window.removeEventListener("resize", checkMobile);
+    }, []);
+
+    // Posição inicial do vídeo local
+    useEffect(() => {
+        if (callState.isInCall && !isPositioned) {
+            const setInitialPosition = () => {
+                if (videoContainerRef.current) {
+                    const container =
+                        videoContainerRef.current.getBoundingClientRect();
+                    const videoWidth = isMobile ? 96 : 192; // w-24 = 96px, w-48 = 192px
+                    const videoHeight = isMobile ? 128 : 144; // h-32 = 128px, h-36 = 144px
+
+                    // Posição inicial: canto inferior direito
+                    setLocalVideoPosition({
+                        x: container.width - videoWidth - (isMobile ? 16 : 16), // 16px de margem
+                        y: container.height - videoHeight - (isMobile ? 4 : 16), // bottom-1 no mobile, 16px no desktop
+                    });
+                    setIsPositioned(true);
+                }
+            };
+
+            // Aguardar um pouco para o container estar renderizado
+            setTimeout(setInitialPosition, 100);
+        }
+    }, [callState.isInCall, isMobile, isPositioned]);
+
+    // Reset posição quando sair da chamada
+    useEffect(() => {
+        if (!callState.isInCall) {
+            setIsPositioned(false);
+            setLocalVideoPosition({ x: 0, y: 0 });
+        }
+    }, [callState.isInCall]);
+
+    // Gerenciar visibilidade dos controles no mobile
+    useEffect(() => {
+        if (isMobile && callState.isInCall) {
+            if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+            }
+
+            controlsTimeoutRef.current = setTimeout(() => {
+                setShowControls(false);
+            }, 3000);
+
+            return () => {
+                if (controlsTimeoutRef.current) {
+                    clearTimeout(controlsTimeoutRef.current);
+                }
+            };
+        } else {
+            setShowControls(true);
+        }
+    }, [isMobile, callState.isInCall]);
+
+    const handleVideoClick = (e: React.MouseEvent) => {
+        // Não mostrar controles se clicou no vídeo local
+        if (localVideoContainerRef.current?.contains(e.target as Node)) {
+            return;
+        }
+
+        if (isMobile && callState.isInCall) {
+            setShowControls(true);
+            if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+            }
+            controlsTimeoutRef.current = setTimeout(() => {
+                setShowControls(false);
+            }, 3000);
+        }
+    };
+
+    // Funções de drag and drop
+    const handleMouseDown = (e: React.MouseEvent) => {
+        if (!localVideoContainerRef.current || !videoContainerRef.current)
+            return;
+
+        const rect = localVideoContainerRef.current.getBoundingClientRect();
+        const containerRect = videoContainerRef.current.getBoundingClientRect();
+
+        setDragOffset({
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+        });
+        setIsDragging(true);
+        e.preventDefault();
+    };
+
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (!localVideoContainerRef.current || !videoContainerRef.current)
+            return;
+
+        const touch = e.touches[0];
+        const rect = localVideoContainerRef.current.getBoundingClientRect();
+
+        setDragOffset({
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top,
+        });
+        setIsDragging(true);
+        e.preventDefault();
+    };
+
+    const constrainPosition = useCallback(
+        (x: number, y: number) => {
+            if (!videoContainerRef.current) return { x, y };
+
+            const container = videoContainerRef.current.getBoundingClientRect();
+            const videoWidth = isMobile ? 96 : 192;
+            const videoHeight = isMobile ? 128 : 144;
+
+            // Manter pelo menos 20px do vídeo visível
+            const minVisible = 20;
+
+            const constrainedX = Math.max(
+                -(videoWidth - minVisible), // Pode sair pela esquerda, mas deixa 20px visível
+                Math.min(x, container.width - minVisible) // Pode sair pela direita, mas deixa 20px visível
+            );
+
+            const constrainedY = Math.max(
+                -(videoHeight - minVisible), // Pode sair por cima, mas deixa 20px visível
+                Math.min(y, container.height - minVisible) // Pode sair por baixo, mas deixa 20px visível
+            );
+
+            return { x: constrainedX, y: constrainedY };
+        },
+        [isMobile]
+    );
+
+    const snapToCorner = useCallback(
+        (x: number, y: number) => {
+            if (!videoContainerRef.current) return { x, y };
+
+            const container = videoContainerRef.current.getBoundingClientRect();
+            const videoWidth = isMobile ? 96 : 192;
+            const videoHeight = isMobile ? 128 : 144;
+            const snapDistance = 50;
+            const margin = 16;
+
+            // Definir posições dos cantos
+            const corners = [
+                { x: margin, y: margin }, // Top-left
+                { x: container.width - videoWidth - margin, y: margin }, // Top-right
+                { x: margin, y: container.height - videoHeight - margin }, // Bottom-left
+                {
+                    x: container.width - videoWidth - margin,
+                    y: container.height - videoHeight - margin,
+                }, // Bottom-right
+            ];
+
+            // Encontrar o canto mais próximo
+            let closestCorner = { x, y };
+            let minDistance = Number.POSITIVE_INFINITY;
+
+            corners.forEach((corner) => {
+                const distance = Math.sqrt(
+                    Math.pow(x - corner.x, 2) + Math.pow(y - corner.y, 2)
+                );
+                if (distance < minDistance && distance < snapDistance) {
+                    minDistance = distance;
+                    closestCorner = corner;
+                }
+            });
+
+            return closestCorner;
+        },
+        [isMobile]
+    );
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isDragging || !videoContainerRef.current) return;
+
+            const containerRect =
+                videoContainerRef.current.getBoundingClientRect();
+            const newX = e.clientX - containerRect.left - dragOffset.x;
+            const newY = e.clientY - containerRect.top - dragOffset.y;
+
+            const constrainedPos = constrainPosition(newX, newY);
+            setLocalVideoPosition(constrainedPos);
+        };
+
+        const handleTouchMove = (e: TouchEvent) => {
+            if (!isDragging || !videoContainerRef.current) return;
+
+            const touch = e.touches[0];
+            const containerRect =
+                videoContainerRef.current.getBoundingClientRect();
+            const newX = touch.clientX - containerRect.left - dragOffset.x;
+            const newY = touch.clientY - containerRect.top - dragOffset.y;
+
+            const constrainedPos = constrainPosition(newX, newY);
+            setLocalVideoPosition(constrainedPos);
+            e.preventDefault();
+        };
+
+        const handleMouseUp = () => {
+            if (isDragging) {
+                // Snap to corner se estiver próximo
+                const snappedPos = snapToCorner(
+                    localVideoPosition.x,
+                    localVideoPosition.y
+                );
+                setLocalVideoPosition(snappedPos);
+                setIsDragging(false);
+            }
+        };
+
+        const handleTouchEnd = () => {
+            if (isDragging) {
+                const snappedPos = snapToCorner(
+                    localVideoPosition.x,
+                    localVideoPosition.y
+                );
+                setLocalVideoPosition(snappedPos);
+                setIsDragging(false);
+            }
+        };
+
+        if (isDragging) {
+            document.addEventListener("mousemove", handleMouseMove);
+            document.addEventListener("mouseup", handleMouseUp);
+            document.addEventListener("touchmove", handleTouchMove, {
+                passive: false,
+            });
+            document.addEventListener("touchend", handleTouchEnd);
+        }
+
+        return () => {
+            document.removeEventListener("mousemove", handleMouseMove);
+            document.removeEventListener("mouseup", handleMouseUp);
+            document.removeEventListener("touchmove", handleTouchMove);
+            document.removeEventListener("touchend", handleTouchEnd);
+        };
+    }, [
+        isDragging,
+        dragOffset,
+        localVideoPosition,
+        constrainPosition,
+        snapToCorner,
+    ]);
+
     useEffect(() => {
         setCallState((prev) => ({
             ...prev,
@@ -82,12 +392,10 @@ export default function VideoCall({
         }));
     }, [isVideoEnabled, isAudioEnabled, isScreenSharing, mediaError]);
 
-    // Update isInCallRef when callState.isInCall changes
     useEffect(() => {
         isInCallRef.current = callState.isInCall;
     }, [callState.isInCall]);
 
-    // Setup incoming call handler
     useEffect(() => {
         if (!peer) return;
 
@@ -103,13 +411,9 @@ export default function VideoCall({
         };
     }, [peer]);
 
-    // Force refresh local video when entering/exiting call
     useEffect(() => {
         if (callState.isInCall && localStream) {
-            console.log("📱 In call, ensuring local video is displayed");
-            // Force video element refresh by changing key
             setLocalVideoKey(Date.now());
-            // Ensure local video is updated
             setTimeout(() => {
                 updateLocalVideo(localStream);
             }, 100);
@@ -117,7 +421,6 @@ export default function VideoCall({
     }, [callState.isInCall, localStream, updateLocalVideo]);
 
     const refreshLocalVideo = useCallback(() => {
-        console.log("🔄 Manually refreshing local video");
         if (localStream) {
             setLocalVideoKey(Date.now());
             setTimeout(() => {
@@ -130,41 +433,19 @@ export default function VideoCall({
         if (!incomingCall) return;
 
         try {
-            console.log("✅ Accepting incoming call");
-
-            // Ensure we have a fresh local stream
             let stream = localStream;
             if (!stream) {
-                console.log("📱 Getting fresh stream for incoming call");
                 stream = await getUserMedia(true, true);
             }
-
-            console.log("📤 Answering call with stream:", stream);
-            console.log(
-                "📤 Stream tracks:",
-                stream
-                    ?.getTracks()
-                    .map((t) => ({ kind: t.kind, enabled: t.enabled }))
-            );
 
             incomingCall.answer(stream);
             setCurrentCall(incomingCall);
 
-            // Store the peer connection for screen sharing
             if (incomingCall.peerConnection) {
-                console.log("📡 Storing peer connection for screen sharing");
                 setCurrentPeerConnection(incomingCall.peerConnection);
             }
 
             incomingCall.on("stream", (remoteStream: MediaStream) => {
-                console.log("📥 Received remote stream:", remoteStream);
-                console.log(
-                    "📥 Remote stream tracks:",
-                    remoteStream
-                        .getTracks()
-                        .map((t) => ({ kind: t.kind, enabled: t.enabled }))
-                );
-
                 setRemoteStreamAndVideo(
                     remoteStream,
                     incomingCall.peerConnection
@@ -178,19 +459,16 @@ export default function VideoCall({
                     error: null,
                 }));
 
-                // Force refresh local video
                 setTimeout(() => {
                     refreshLocalVideo();
                 }, 500);
             });
 
             incomingCall.on("close", () => {
-                console.log("📞 Incoming call closed");
                 endCall();
             });
 
             incomingCall.on("error", (err: any) => {
-                console.error("❌ Incoming call error:", err);
                 setCallState((prev) => ({
                     ...prev,
                     error: "Erro na chamada: " + err.message,
@@ -199,7 +477,6 @@ export default function VideoCall({
 
             setIncomingCall(null);
         } catch (err) {
-            console.error("❌ Error accepting call:", err);
             setMediaError("Erro ao responder chamada");
             setIncomingCall(null);
         }
@@ -215,7 +492,6 @@ export default function VideoCall({
     ]);
 
     const rejectIncomingCall = useCallback(() => {
-        console.log("❌ Rejecting incoming call");
         if (incomingCall) {
             incomingCall.close();
             setIncomingCall(null);
@@ -226,58 +502,26 @@ export default function VideoCall({
         if (!peer || !remoteEmailInput.trim()) return;
 
         try {
-            console.log("📞 Starting call to:", remoteEmailInput);
-
-            // Show outgoing call modal
             setOutgoingCall(remoteEmailInput.trim());
 
-            // Ensure we have a fresh local stream
             let stream = localStream;
             if (!stream) {
-                console.log("📱 Getting fresh stream for outgoing call");
                 stream = await getUserMedia(true, true);
             }
 
             const remotePeerId = emailToPeerId(
                 remoteEmailInput.trim().toLowerCase()
             );
-            console.log(
-                "📤 Calling peer ID:",
-                remotePeerId,
-                "with stream:",
-                stream
-            );
-            console.log(
-                "📤 Stream tracks:",
-                stream
-                    ?.getTracks()
-                    .map((t) => ({ kind: t.kind, enabled: t.enabled }))
-            );
-
             const call = peer.call(remotePeerId, stream);
             setCurrentCall(call);
 
-            // Store the peer connection for screen sharing
             if (call.peerConnection) {
-                console.log("📡 Storing peer connection for screen sharing");
                 setCurrentPeerConnection(call.peerConnection);
             }
 
-            // Set up call event handlers
             call.on("stream", (remoteStream: MediaStream) => {
-                console.log(
-                    "📥 Received remote stream from outgoing call:",
-                    remoteStream
-                );
-                console.log(
-                    "📥 Remote stream tracks:",
-                    remoteStream
-                        .getTracks()
-                        .map((t) => ({ kind: t.kind, enabled: t.enabled }))
-                );
-
                 setRemoteStreamAndVideo(remoteStream, call.peerConnection);
-                setOutgoingCall(null); // Hide outgoing call modal
+                setOutgoingCall(null);
                 setCallState((prev) => ({
                     ...prev,
                     isInCall: true,
@@ -285,20 +529,17 @@ export default function VideoCall({
                     error: null,
                 }));
 
-                // Force refresh local video
                 setTimeout(() => {
                     refreshLocalVideo();
                 }, 500);
             });
 
             call.on("close", () => {
-                console.log("📞 Outgoing call closed");
                 setOutgoingCall(null);
                 endCall();
             });
 
             call.on("error", (err: any) => {
-                console.error("❌ Outgoing call error:", err);
                 setOutgoingCall(null);
                 setCallState((prev) => ({
                     ...prev,
@@ -309,7 +550,6 @@ export default function VideoCall({
                 }));
             });
         } catch (err) {
-            console.error("❌ Error starting call:", err);
             setOutgoingCall(null);
             setCallState((prev) => ({
                 ...prev,
@@ -328,7 +568,6 @@ export default function VideoCall({
     ]);
 
     const cancelOutgoingCall = useCallback(() => {
-        console.log("❌ Canceling outgoing call");
         if (currentCall) {
             currentCall.close();
             setCurrentCall(null);
@@ -356,14 +595,11 @@ export default function VideoCall({
     }, [isScreenSharing, stopScreenShare, getScreenShare]);
 
     const endCall = useCallback(() => {
-        console.log("📞 Ending call");
-
         if (currentCall) {
             currentCall.close();
             setCurrentCall(null);
         }
 
-        // Clear only remote stream, keep local stream for next call
         clearRemoteStream();
 
         setCallState((prev) => ({
@@ -375,8 +611,8 @@ export default function VideoCall({
         }));
 
         setOutgoingCall(null);
+        setShowControls(true);
 
-        // Force refresh local video after ending call
         setTimeout(() => {
             refreshLocalVideo();
         }, 500);
@@ -388,104 +624,80 @@ export default function VideoCall({
         setTimeout(() => setCopied(false), 2000);
     };
 
-    // Layout when in call - Side by Side Videos
+    // Layout quando em chamada
     if (callState.isInCall) {
         return (
-            <div className='min-h-screen bg-gray-900 p-2 md:p-4'>
-                <div className='max-w-7xl mx-auto'>
-                    {/* Header */}
-                    <div className='text-center mb-4 md:mb-6'>
-                        <h1 className='text-xl md:text-2xl font-bold text-white mb-2'>
-                            Em chamada com {callState.remotePeerId}
-                        </h1>
-                        <p className='text-gray-300 text-sm'>
-                            {remoteStream ? "Conectado" : "Conectando..."}
-                        </p>
-                    </div>
+            <div
+                className={`${isMobile ? "h-screen" : "h-screen"} bg-gray-900 ${
+                    isMobile ? "p-0" : "p-2"
+                } relative overflow-hidden`}
+                onClick={handleVideoClick}
+            >
+                <div
+                    className={`${
+                        isMobile ? "h-full" : "h-full flex flex-col"
+                    }`}
+                >
+                    {/* Header - apenas no desktop */}
+                    {!isMobile && (
+                        <div className='text-center py-2 flex-shrink-0'>
+                            <h1 className='text-lg font-bold text-white'>
+                                Em chamada com {callState.remotePeerId}
+                            </h1>
+                            <p className='text-gray-300 text-xs'>
+                                {remoteStream ? "Conectado" : "Conectando..."}
+                            </p>
+                        </div>
+                    )}
 
-                    {/* Main Video Layout - Guest takes full space, local video as overlay */}
-                    <div className='relative mb-8'>
-                        {/* Remote Video - Full Screen */}
-                        <Card className='bg-black border-gray-700'>
-                            <CardContent className='p-4'>
-                                <div className='aspect-video bg-gray-800 rounded-lg overflow-hidden relative'>
-                                    <video
-                                        ref={remoteVideoRef}
-                                        autoPlay
-                                        playsInline
-                                        controls={false}
-                                        muted={false}
-                                        className='w-full h-full object-cover bg-gray-800'
-                                        onLoadedMetadata={() => {
-                                            console.log(
-                                                "📺 Remote video metadata loaded"
-                                            );
-                                            if (
-                                                remoteVideoRef.current &&
-                                                remoteVideoRef.current.paused
-                                            ) {
-                                                remoteVideoRef.current
-                                                    .play()
-                                                    .catch((e) =>
-                                                        console.error(
-                                                            "Play error:",
-                                                            e
-                                                        )
-                                                    );
-                                            }
-                                        }}
-                                        onCanPlay={() => {
-                                            console.log(
-                                                "📺 Remote video can play"
-                                            );
-                                        }}
-                                        onPlaying={() => {
-                                            console.log(
-                                                "▶️ Remote video is playing"
-                                            );
-                                        }}
-                                        onError={(e) => {
-                                            console.error(
-                                                "❌ Remote video error:",
-                                                e
-                                            );
-                                        }}
-                                    />
-                                    {!remoteStream && (
-                                        <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
-                                            <div className='text-white text-center'>
-                                                <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
-                                                    <Phone className='w-8 h-8' />
-                                                </div>
-                                                <p className='text-sm'>
-                                                    Aguardando vídeo...
-                                                </p>
-                                                <p className='text-xs text-gray-400 mt-1'>
-                                                    {callState.remotePeerId}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Local Video Overlay - Picture in Picture */}
-                                    <div className='absolute top-2 right-2 md:top-4 md:right-4 w-32 h-24 md:w-48 md:h-36 bg-black rounded-lg overflow-hidden border-2 border-white/30 shadow-2xl z-10 group hover:scale-105 transition-transform duration-200'>
+                    {/* Container principal do vídeo */}
+                    <div
+                        className={`relative ${
+                            isMobile
+                                ? "h-full"
+                                : "flex-1 min-h-0 flex items-center justify-center"
+                        }`}
+                    >
+                        <div
+                            className={`${
+                                isMobile ? "w-full h-full" : "w-full max-w-4xl"
+                            }`}
+                        >
+                            <Card
+                                className={`bg-black border-gray-700 ${
+                                    isMobile
+                                        ? "h-full border-0 rounded-none"
+                                        : ""
+                                }`}
+                            >
+                                <CardContent
+                                    className={`${
+                                        isMobile ? "p-0 h-full" : "p-2"
+                                    }`}
+                                >
+                                    <div
+                                        ref={videoContainerRef}
+                                        className={`${
+                                            isMobile ? "h-full" : "aspect-video"
+                                        } bg-gray-800 ${
+                                            isMobile ? "" : "rounded-lg"
+                                        } overflow-hidden relative`}
+                                    >
+                                        {/* Vídeo remoto - tela cheia */}
                                         <video
-                                            key={localVideoKey}
-                                            ref={localVideoRef}
+                                            ref={remoteVideoRef}
                                             autoPlay
-                                            muted={true}
                                             playsInline
                                             controls={false}
+                                            muted={false}
                                             className='w-full h-full object-cover bg-gray-800'
                                             onLoadedMetadata={() => {
-                                                console.log(
-                                                    "📺 Local video metadata loaded"
-                                                );
                                                 if (
-                                                    localVideoRef.current &&
-                                                    localVideoRef.current.paused
+                                                    remoteVideoRef.current &&
+                                                    remoteVideoRef.current
+                                                        .paused
                                                 ) {
-                                                    localVideoRef.current
+                                                    remoteVideoRef.current
                                                         .play()
                                                         .catch((e) =>
                                                             console.error(
@@ -495,201 +707,224 @@ export default function VideoCall({
                                                         );
                                                 }
                                             }}
-                                            onCanPlay={() => {
-                                                console.log(
-                                                    "📺 Local video can play"
-                                                );
-                                            }}
-                                            onPlaying={() => {
-                                                console.log(
-                                                    "▶️ Local video is playing"
-                                                );
-                                            }}
-                                            onError={(e) => {
-                                                console.error(
-                                                    "❌ Local video error:",
-                                                    e
-                                                );
-                                            }}
                                         />
-                                        {(!localStream ||
-                                            !callState.isVideoEnabled) && (
+
+                                        {!remoteStream && (
                                             <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
                                                 <div className='text-white text-center'>
-                                                    <div className='w-8 h-8 bg-gray-600 rounded-full mx-auto mb-1 flex items-center justify-center'>
-                                                        <span className='text-sm'>
-                                                            👤
-                                                        </span>
+                                                    <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
+                                                        <Phone className='w-8 h-8' />
                                                     </div>
-                                                    <p className='text-xs'>
-                                                        {!localStream
-                                                            ? "Carregando..."
-                                                            : "Câmera off"}
+                                                    <p className='text-sm'>
+                                                        Aguardando vídeo...
+                                                    </p>
+                                                    <p className='text-xs text-gray-400 mt-1'>
+                                                        {callState.remotePeerId}
                                                     </p>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {/* Local Video Label */}
-                                        <div className='absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2'>
-                                            <div className='flex items-center justify-between'>
-                                                <p className='text-white text-xs font-medium truncate'>
-                                                    Você
-                                                </p>
-                                                <Button
-                                                    variant='ghost'
-                                                    size='icon'
-                                                    className='h-6 w-6 text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity'
-                                                    onClick={refreshLocalVideo}
-                                                >
-                                                    <RefreshCw className='h-3 w-3' />
-                                                </Button>
+                                        {/* Vídeo local - posicionável - esconder durante compartilhamento de tela */}
+                                        {!callState.isScreenSharing && (
+                                            <div
+                                                ref={localVideoContainerRef}
+                                                className={`absolute ${
+                                                    isMobile
+                                                        ? "w-24 h-32"
+                                                        : "w-48 h-36"
+                                                } bg-black rounded-lg overflow-hidden border-2 border-white/30 shadow-2xl z-20 cursor-move select-none ${
+                                                    isDragging
+                                                        ? "scale-105 shadow-3xl"
+                                                        : "hover:scale-105"
+                                                } transition-transform duration-200`}
+                                                style={{
+                                                    left: `${localVideoPosition.x}px`,
+                                                    top: `${localVideoPosition.y}px`,
+                                                    transform: isDragging
+                                                        ? "scale(1.05)"
+                                                        : "scale(1)",
+                                                }}
+                                                onMouseDown={handleMouseDown}
+                                                onTouchStart={handleTouchStart}
+                                            >
+                                                <video
+                                                    key={localVideoKey}
+                                                    ref={localVideoRef}
+                                                    autoPlay
+                                                    muted={true}
+                                                    playsInline
+                                                    controls={false}
+                                                    className='w-full h-full object-cover bg-gray-800 pointer-events-none'
+                                                    onLoadedMetadata={() => {
+                                                        if (
+                                                            localVideoRef.current &&
+                                                            localVideoRef
+                                                                .current.paused
+                                                        ) {
+                                                            localVideoRef.current
+                                                                .play()
+                                                                .catch((e) =>
+                                                                    console.error(
+                                                                        "Play error:",
+                                                                        e
+                                                                    )
+                                                                );
+                                                        }
+                                                    }}
+                                                />
+                                                {(!localStream ||
+                                                    !callState.isVideoEnabled) && (
+                                                    <div className='absolute inset-0 bg-gray-800 flex items-center justify-center pointer-events-none'>
+                                                        <div className='text-white text-center'>
+                                                            <div
+                                                                className={`${
+                                                                    isMobile
+                                                                        ? "w-6 h-6"
+                                                                        : "w-8 h-8"
+                                                                } bg-gray-600 rounded-full mx-auto mb-1 flex items-center justify-center`}
+                                                            >
+                                                                <span
+                                                                    className={`${
+                                                                        isMobile
+                                                                            ? "text-xs"
+                                                                            : "text-sm"
+                                                                    }`}
+                                                                >
+                                                                    👤
+                                                                </span>
+                                                            </div>
+                                                            <p
+                                                                className={`${
+                                                                    isMobile
+                                                                        ? "text-xs"
+                                                                        : "text-xs"
+                                                                }`}
+                                                            >
+                                                                {!localStream
+                                                                    ? "Carregando..."
+                                                                    : "Câmera off"}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Label do vídeo local */}
+                                                <div className='absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1 pointer-events-none'>
+                                                    <div className='flex items-center justify-between'>
+                                                        <p
+                                                            className={`text-white ${
+                                                                isMobile
+                                                                    ? "text-xs"
+                                                                    : "text-xs"
+                                                            } font-medium truncate`}
+                                                        >
+                                                            Você
+                                                        </p>
+                                                        {!isMobile &&
+                                                            !isDragging && (
+                                                                <Button
+                                                                    variant='ghost'
+                                                                    size='icon'
+                                                                    className='h-6 w-6 text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-auto'
+                                                                    onClick={(
+                                                                        e
+                                                                    ) => {
+                                                                        e.stopPropagation();
+                                                                        refreshLocalVideo();
+                                                                    }}
+                                                                >
+                                                                    <RefreshCw className='h-3 w-3' />
+                                                                </Button>
+                                                            )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Indicador de drag */}
+                                                {isDragging && (
+                                                    <div className='absolute inset-0 bg-blue-500/20 border-2 border-blue-400 rounded-lg pointer-events-none'>
+                                                        <div className='absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white text-xs bg-blue-600 px-2 py-1 rounded'>
+                                                            Arraste para
+                                                            posicionar
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
+                                        )}
+
+                                        {/* Label do vídeo remoto - apenas no desktop */}
+                                        {!isMobile && (
+                                            <div className='absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2 z-10'>
+                                                <p className='text-white text-sm font-medium'>
+                                                    {callState.isScreenSharing
+                                                        ? `${callState.remotePeerId} - Compartilhando Tela`
+                                                        : callState.remotePeerId}
+                                                </p>
+                                                <p className='text-gray-300 text-xs'>
+                                                    {remoteStream
+                                                        ? "Conectado"
+                                                        : "Conectando..."}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {/* Controles de vídeo */}
+                                        <div
+                                            className={`absolute ${
+                                                isMobile
+                                                    ? "bottom-4 left-1/2 transform -translate-x-1/2"
+                                                    : "bottom-4 left-1/2 transform -translate-x-1/2"
+                                            } transition-opacity duration-300 z-10 ${
+                                                showControls
+                                                    ? "opacity-100"
+                                                    : "opacity-0 pointer-events-none"
+                                            }`}
+                                        >
+                                            <VideoControls
+                                                isVideoEnabled={
+                                                    callState.isVideoEnabled
+                                                }
+                                                isAudioEnabled={
+                                                    callState.isAudioEnabled
+                                                }
+                                                isScreenSharing={
+                                                    callState.isScreenSharing
+                                                }
+                                                isInCall={callState.isInCall}
+                                                onToggleVideo={toggleVideo}
+                                                onToggleAudio={toggleAudio}
+                                                onToggleScreenShare={
+                                                    handleToggleScreenShare
+                                                }
+                                                onEndCall={endCall}
+                                                checkScreenShareSupport={
+                                                    checkScreenShareSupport
+                                                }
+                                            />
                                         </div>
                                     </div>
-
-                                    {/* Remote Video Label */}
-                                    <div className='absolute top-4 left-4 bg-black/60 backdrop-blur-sm rounded-lg px-3 py-2'>
-                                        <p className='text-white text-sm font-medium'>
-                                            {callState.remotePeerId}
-                                        </p>
-                                        <p className='text-gray-300 text-xs'>
-                                            {remoteStream
-                                                ? "Conectado"
-                                                : "Conectando..."}
-                                        </p>
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+                                </CardContent>
+                            </Card>
+                        </div>
                     </div>
 
-                    {/* Video Controls */}
-                    <div className='flex justify-center mb-6'>
-                        <VideoControls
-                            isVideoEnabled={callState.isVideoEnabled}
-                            isAudioEnabled={callState.isAudioEnabled}
-                            isScreenSharing={callState.isScreenSharing}
-                            isInCall={callState.isInCall}
-                            onToggleVideo={toggleVideo}
-                            onToggleAudio={toggleAudio}
-                            onToggleScreenShare={handleToggleScreenShare}
-                            onEndCall={endCall}
-                        />
-                    </div>
-
-                    {/* Error Message */}
-                    {callState.error && (
-                        <div className='mb-6 p-4 bg-red-500/90 text-white rounded-lg text-center'>
+                    {/* Mensagem de erro - apenas no desktop e compacta */}
+                    {!isMobile && callState.error && (
+                        <div className='absolute top-16 left-4 right-4 p-2 bg-red-500/90 text-white rounded-lg text-center text-sm z-30'>
                             {callState.error}
                         </div>
                     )}
-
-                    {/* Debug Info */}
-                    <Card className='bg-gray-800 border-gray-700'>
-                        <CardContent className='p-4'>
-                            <div className='text-white text-sm space-y-2'>
-                                <div className='font-medium'>
-                                    Debug Information:
-                                </div>
-                                <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
-                                    <div>
-                                        Local Stream:{" "}
-                                        {localStream
-                                            ? "✅ Ativo"
-                                            : "❌ Inativo"}
-                                    </div>
-                                    <div>
-                                        Remote Stream:{" "}
-                                        {remoteStream
-                                            ? "✅ Ativo"
-                                            : "❌ Inativo"}
-                                    </div>
-                                    <div>
-                                        Vídeo Local:{" "}
-                                        {isVideoEnabled
-                                            ? "✅ Ligado"
-                                            : "❌ Desligado"}
-                                    </div>
-                                    <div>
-                                        Áudio Local:{" "}
-                                        {isAudioEnabled
-                                            ? "✅ Ligado"
-                                            : "❌ Desligado"}
-                                    </div>
-                                </div>
-                                {localStream && (
-                                    <div>
-                                        Local Tracks:{" "}
-                                        {localStream
-                                            .getTracks()
-                                            .map(
-                                                (t) =>
-                                                    `${t.kind}(${
-                                                        t.enabled ? "on" : "off"
-                                                    })`
-                                            )
-                                            .join(", ")}
-                                    </div>
-                                )}
-                                {remoteStream && (
-                                    <div>
-                                        Remote Tracks:{" "}
-                                        {remoteStream
-                                            .getTracks()
-                                            .map(
-                                                (t) =>
-                                                    `${t.kind}(${
-                                                        t.enabled ? "on" : "off"
-                                                    })`
-                                            )
-                                            .join(", ")}
-                                    </div>
-                                )}
-                                <div>
-                                    Current Call:{" "}
-                                    {currentCall ? "✅ Active" : "❌ None"}
-                                </div>
-                                <div>
-                                    Screen Sharing:{" "}
-                                    {isScreenSharing
-                                        ? "✅ Active"
-                                        : "❌ Inactive"}
-                                </div>
-                                <div>
-                                    Video Elements: Local=
-                                    {localVideoRef.current?.srcObject
-                                        ? "✅"
-                                        : "❌"}
-                                    , Remote=
-                                    {remoteVideoRef.current?.srcObject
-                                        ? "✅"
-                                        : "❌"}
-                                </div>
-                                <div>
-                                    Video Playing: Local=
-                                    {!localVideoRef.current?.paused
-                                        ? "✅"
-                                        : "❌"}
-                                    , Remote=
-                                    {!remoteVideoRef.current?.paused
-                                        ? "✅"
-                                        : "❌"}
-                                </div>
-                            </div>
-                        </CardContent>
-                    </Card>
                 </div>
             </div>
         );
     }
 
-    // Desktop layout when not in call
+    // Layout quando não está em chamada - ajustado para caber na tela
     return (
-        <div className='min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4'>
-            <div className='max-w-6xl mx-auto'>
-                <div className='text-center mb-8'>
-                    <h1 className='text-4xl font-bold text-gray-900 mb-2'>
+        <div className='h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 overflow-hidden'>
+            <div className='h-full max-w-6xl mx-auto flex flex-col'>
+                <div className='text-center mb-4 flex-shrink-0'>
+                    <h1 className='text-3xl font-bold text-gray-900 mb-2'>
                         Video Call App
                     </h1>
                     <p className='text-gray-600'>
@@ -698,19 +933,38 @@ export default function VideoCall({
                     </p>
                 </div>
 
+                {checkScreenShareSupport &&
+                    checkScreenShareSupport().inIframe && (
+                        <div className='mb-4 p-3 bg-blue-100 border border-blue-300 text-blue-800 rounded-lg flex-shrink-0'>
+                            <div className='flex items-center gap-2 mb-2'>
+                                <AlertCircle className='w-4 h-4' />
+                                <span className='font-medium text-sm'>
+                                    Compartilhamento de tela indisponível no
+                                    preview
+                                </span>
+                            </div>
+                            <p className='text-xs mb-3'>
+                                O compartilhamento de tela não funciona em
+                                ambientes de preview. Abra o aplicativo em uma
+                                nova aba.
+                            </p>
+                            <OpenInNewTabButton />
+                        </div>
+                    )}
+
                 {callState.error && (
-                    <div className='mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg'>
+                    <div className='mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg text-sm flex-shrink-0'>
                         {callState.error}
                     </div>
                 )}
 
-                <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
+                <div className='grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0'>
                     <div className='lg:col-span-1'>
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className='flex items-center justify-between'>
+                        <Card className='h-full flex flex-col'>
+                            <CardHeader className='flex-shrink-0 pb-3'>
+                                <CardTitle className='flex items-center justify-between text-lg'>
                                     <div className='flex items-center gap-2'>
-                                        <Phone className='w-5 h-5' />
+                                        <Phone className='w-4 h-4' />
                                         Controles
                                     </div>
                                     <Button
@@ -718,12 +972,12 @@ export default function VideoCall({
                                         size='sm'
                                         onClick={onLogout}
                                     >
-                                        <LogOut className='w-4 h-4 mr-2' />
+                                        <LogOut className='w-3 h-3 mr-2' />
                                         Sair
                                     </Button>
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent className='space-y-4'>
+                            <CardContent className='space-y-3 flex-1'>
                                 <div className='flex items-center justify-between'>
                                     <span className='text-sm font-medium'>
                                         Status:
@@ -747,9 +1001,9 @@ export default function VideoCall({
                                             onClick={copyEmail}
                                         >
                                             {copied ? (
-                                                <Check className='w-4 h-4' />
+                                                <Check className='w-3 h-3' />
                                             ) : (
-                                                <Copy className='w-4 h-4' />
+                                                <Copy className='w-3 h-3' />
                                             )}
                                         </Button>
                                     </div>
@@ -774,6 +1028,7 @@ export default function VideoCall({
                                                 )
                                             }
                                             disabled={!!outgoingCall}
+                                            className='text-sm'
                                         />
                                         <Button
                                             onClick={startCall}
@@ -782,65 +1037,18 @@ export default function VideoCall({
                                                 !!outgoingCall
                                             }
                                         >
-                                            <Phone className='w-4 h-4' />
+                                            <Phone className='w-3 h-3' />
                                         </Button>
                                     </div>
-                                </div>
-
-                                {/* Debug Info */}
-                                <div className='text-xs text-gray-500 space-y-1 p-2 bg-gray-50 rounded'>
-                                    <div className='font-medium'>
-                                        Status dos Streams:
-                                    </div>
-                                    <div>
-                                        Local Stream:{" "}
-                                        {localStream
-                                            ? "✅ Ativo"
-                                            : "❌ Inativo"}
-                                    </div>
-                                    <div>
-                                        Remote Stream:{" "}
-                                        {remoteStream
-                                            ? "✅ Ativo"
-                                            : "❌ Inativo"}
-                                    </div>
-                                    <div>
-                                        Vídeo Local:{" "}
-                                        {isVideoEnabled
-                                            ? "✅ Ligado"
-                                            : "❌ Desligado"}
-                                    </div>
-                                    <div>
-                                        Áudio Local:{" "}
-                                        {isAudioEnabled
-                                            ? "✅ Ligado"
-                                            : "❌ Desligado"}
-                                    </div>
-                                    {localStream && (
-                                        <div>
-                                            Tracks:{" "}
-                                            {localStream
-                                                .getTracks()
-                                                .map(
-                                                    (t) =>
-                                                        `${t.kind}(${
-                                                            t.enabled
-                                                                ? "on"
-                                                                : "off"
-                                                        })`
-                                                )
-                                                .join(", ")}
-                                        </div>
-                                    )}
                                 </div>
                             </CardContent>
                         </Card>
                     </div>
 
                     <div className='lg:col-span-2'>
-                        <Card>
-                            <CardContent className='p-6'>
-                                <div className='aspect-video bg-gray-900 rounded-lg overflow-hidden mb-4 relative'>
+                        <Card className='h-full flex flex-col'>
+                            <CardContent className='p-4 flex-1 flex flex-col'>
+                                <div className='aspect-video bg-gray-900 rounded-lg overflow-hidden mb-3 relative flex-1'>
                                     <video
                                         key={localVideoKey}
                                         ref={localVideoRef}
@@ -850,9 +1058,6 @@ export default function VideoCall({
                                         controls={false}
                                         className='w-full h-full object-cover bg-gray-800'
                                         onLoadedMetadata={() => {
-                                            console.log(
-                                                "📺 Preview video metadata loaded"
-                                            );
                                             if (
                                                 localVideoRef.current &&
                                                 localVideoRef.current.paused
@@ -867,28 +1072,12 @@ export default function VideoCall({
                                                     );
                                             }
                                         }}
-                                        onCanPlay={() => {
-                                            console.log(
-                                                "📺 Preview video can play"
-                                            );
-                                        }}
-                                        onPlaying={() => {
-                                            console.log(
-                                                "▶️ Preview video is playing"
-                                            );
-                                        }}
-                                        onError={(e) => {
-                                            console.error(
-                                                "❌ Preview video error:",
-                                                e
-                                            );
-                                        }}
                                     />
                                     {(!localStream || !isVideoEnabled) && (
                                         <div className='absolute inset-0 bg-gray-800 flex items-center justify-center'>
                                             <div className='text-white text-center'>
-                                                <div className='w-16 h-16 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
-                                                    <span className='text-2xl'>
+                                                <div className='w-12 h-12 bg-gray-600 rounded-full mx-auto mb-2 flex items-center justify-center'>
+                                                    <span className='text-lg'>
                                                         👤
                                                     </span>
                                                 </div>
@@ -902,7 +1091,7 @@ export default function VideoCall({
                                     )}
                                 </div>
 
-                                <div className='flex justify-center'>
+                                <div className='flex justify-center flex-shrink-0'>
                                     <VideoControls
                                         isVideoEnabled={
                                             callState.isVideoEnabled
@@ -920,6 +1109,9 @@ export default function VideoCall({
                                             handleToggleScreenShare
                                         }
                                         onEndCall={endCall}
+                                        checkScreenShareSupport={
+                                            checkScreenShareSupport
+                                        }
                                     />
                                 </div>
                             </CardContent>
@@ -928,7 +1120,6 @@ export default function VideoCall({
                 </div>
             </div>
 
-            {/* Incoming Call Modal */}
             <IncomingCallModal
                 isOpen={!!incomingCall}
                 callerEmail={
@@ -938,10 +1129,9 @@ export default function VideoCall({
                 onReject={rejectIncomingCall}
             />
 
-            {/* Outgoing Call Modal */}
             <OutgoingCallModal
                 isOpen={!!outgoingCall}
-                callingEmail={outgoingCall || ""}
+                callingEmail={outgoingCall ?? ""}
                 onCancel={cancelOutgoingCall}
             />
         </div>

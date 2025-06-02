@@ -15,6 +15,17 @@ export const useMediaStream = () => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
+    // Adicione estas variáveis no início do hook
+    const originalRemoteStreamRef = useRef<MediaStream | null>(null);
+
+    const isRunningInIframe = useCallback(() => {
+        try {
+            return window !== window.top;
+        } catch (e) {
+            return true;
+        }
+    }, []);
+
     // Force video element update when stream changes
     const updateLocalVideo = useCallback((stream: MediaStream | null) => {
         console.log(
@@ -23,10 +34,8 @@ export const useMediaStream = () => {
         );
 
         if (localVideoRef.current) {
-            // Store current srcObject to check if it changed
             const currentSrc = localVideoRef.current.srcObject;
 
-            // Only update if the stream is different
             if (currentSrc !== stream) {
                 console.log("🔄 Local video srcObject is changing");
                 localVideoRef.current.srcObject = stream;
@@ -37,7 +46,6 @@ export const useMediaStream = () => {
                 localVideoRef.current.autoplay = true;
                 localVideoRef.current.playsInline = true;
 
-                // Force play
                 const playVideo = async () => {
                     try {
                         if (
@@ -52,12 +60,9 @@ export const useMediaStream = () => {
                     }
                 };
 
-                // Try to play immediately and after a short delay
                 playVideo();
                 setTimeout(playVideo, 100);
             }
-        } else {
-            console.warn("⚠️ Local video ref is null");
         }
     }, []);
 
@@ -68,10 +73,8 @@ export const useMediaStream = () => {
         );
 
         if (remoteVideoRef.current) {
-            // Store current srcObject to check if it changed
             const currentSrc = remoteVideoRef.current.srcObject;
 
-            // Only update if the stream is different
             if (currentSrc !== stream) {
                 console.log("🔄 Remote video srcObject is changing");
                 remoteVideoRef.current.srcObject = stream;
@@ -83,7 +86,6 @@ export const useMediaStream = () => {
                 remoteVideoRef.current.playsInline = true;
                 remoteVideoRef.current.volume = 1.0;
 
-                // Force play
                 const playVideo = async () => {
                     try {
                         if (
@@ -95,13 +97,11 @@ export const useMediaStream = () => {
                         }
                     } catch (error) {
                         console.error("❌ Remote video play error:", error);
-                        // Try muted first if autoplay fails
                         if (remoteVideoRef.current) {
                             remoteVideoRef.current.muted = true;
                             try {
                                 await remoteVideoRef.current.play();
                                 console.log("▶️ Remote video playing (muted)");
-                                // Unmute after playing
                                 setTimeout(() => {
                                     if (remoteVideoRef.current) {
                                         remoteVideoRef.current.muted = false;
@@ -117,46 +117,35 @@ export const useMediaStream = () => {
                     }
                 };
 
-                // Try to play immediately and after a short delay
                 playVideo();
                 setTimeout(playVideo, 100);
             }
-        } else {
-            console.warn("⚠️ Remote video ref is null");
         }
     }, []);
 
-    // Update video elements when streams change
     useEffect(() => {
-        console.log("🔄 Local stream changed, updating video element");
         updateLocalVideo(localStream);
     }, [localStream, updateLocalVideo]);
 
     useEffect(() => {
-        console.log("🔄 Remote stream changed, updating video element");
         updateRemoteVideo(remoteStream);
     }, [remoteStream, updateRemoteVideo]);
 
-    // Periodically check if video elements are correctly set
     useEffect(() => {
         const interval = setInterval(() => {
-            // Check if local video needs updating
             if (
                 localStream &&
                 localVideoRef.current &&
                 !localVideoRef.current.srcObject
             ) {
-                console.log("🔄 Local video srcObject missing, restoring");
                 updateLocalVideo(localStream);
             }
 
-            // Check if remote video needs updating
             if (
                 remoteStream &&
                 remoteVideoRef.current &&
                 !remoteVideoRef.current.srcObject
             ) {
-                console.log("🔄 Remote video srcObject missing, restoring");
                 updateRemoteVideo(remoteStream);
             }
         }, 2000);
@@ -192,15 +181,6 @@ export const useMediaStream = () => {
                     constraints
                 );
                 console.log("✅ Got user media stream:", stream);
-                console.log(
-                    "📊 Stream tracks:",
-                    stream.getTracks().map((t) => ({
-                        kind: t.kind,
-                        enabled: t.enabled,
-                        readyState: t.readyState,
-                        id: t.id,
-                    }))
-                );
 
                 setLocalStream(stream);
                 setIsVideoEnabled(video && stream.getVideoTracks().length > 0);
@@ -219,107 +199,226 @@ export const useMediaStream = () => {
         []
     );
 
+    // Modifique a função setRemoteStreamAndVideo para salvar o stream original
     const setRemoteStreamAndVideo = useCallback(
         (stream: MediaStream, peerConnection?: any) => {
             console.log("🌐 Setting remote stream:", stream);
-            console.log(
-                "📊 Remote stream tracks:",
-                stream.getTracks().map((t) => ({
-                    kind: t.kind,
-                    enabled: t.enabled,
-                    readyState: t.readyState,
-                    id: t.id,
-                }))
-            );
+
+            // Salvar o stream remoto original se não estivermos compartilhando tela
+            if (!isScreenSharing) {
+                originalRemoteStreamRef.current = stream;
+            }
 
             setRemoteStream(stream);
 
-            // Store the peer connection for later use (screen sharing)
             if (peerConnection) {
                 setCurrentPeerConnection(peerConnection);
             }
         },
-        []
+        [isScreenSharing]
     );
+
+    const checkScreenShareSupport = useCallback(() => {
+        const isSupported = !!(
+            navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia
+        );
+        const isSecure = window.isSecureContext;
+        const isHttps =
+            window.location.protocol === "https:" ||
+            window.location.hostname === "localhost";
+        const inIframe = isRunningInIframe();
+        const hasPermissionPolicy = inIframe;
+
+        return {
+            isSupported,
+            isSecure,
+            isHttps,
+            inIframe,
+            hasPermissionPolicy,
+            canUse: isSupported && isSecure && !hasPermissionPolicy,
+        };
+    }, [isRunningInIframe]);
 
     const getScreenShare = useCallback(async (): Promise<MediaStream> => {
         try {
             console.log("🖥️ Requesting screen share");
 
-            const screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 },
-                    frameRate: { ideal: 30 },
-                },
-                audio: true,
-            });
+            const support = checkScreenShareSupport();
+
+            if (!support.isSupported) {
+                throw new Error(
+                    "Compartilhamento de tela não é suportado neste navegador"
+                );
+            }
+
+            if (!support.isSecure) {
+                throw new Error(
+                    "Compartilhamento de tela requer conexão segura (HTTPS)"
+                );
+            }
+
+            if (support.inIframe) {
+                throw new Error(
+                    "Compartilhamento de tela não funciona em previews ou iframes. Abra o aplicativo em uma nova aba."
+                );
+            }
+
+            let screenStream: MediaStream;
+
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 },
+                        frameRate: { ideal: 30 },
+                    },
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                    },
+                });
+            } catch (permissionError: any) {
+                console.error(
+                    "❌ Screen share permission error:",
+                    permissionError
+                );
+
+                if (permissionError.name === "NotAllowedError") {
+                    throw new Error(
+                        "Permissão negada para compartilhar tela. Clique em 'Permitir' quando solicitado."
+                    );
+                } else if (permissionError.name === "NotSupportedError") {
+                    throw new Error(
+                        "Compartilhamento de tela não é suportado neste dispositivo"
+                    );
+                } else if (
+                    permissionError.message?.includes("permissions policy")
+                ) {
+                    throw new Error(
+                        "Compartilhamento de tela bloqueado pelas políticas de segurança. Abra o aplicativo em uma nova aba."
+                    );
+                } else if (
+                    permissionError.message?.includes("display-capture")
+                ) {
+                    throw new Error(
+                        "Funcionalidade de captura de tela não disponível neste ambiente. Abra o aplicativo em uma nova aba."
+                    );
+                } else {
+                    throw new Error(
+                        "Erro ao acessar compartilhamento de tela: " +
+                            permissionError.message
+                    );
+                }
+            }
 
             console.log("✅ Got screen share stream:", screenStream);
-            console.log(
-                "📊 Screen share tracks:",
-                screenStream.getTracks().map((t) => ({
-                    kind: t.kind,
-                    enabled: t.enabled,
-                    readyState: t.readyState,
-                    id: t.id,
-                }))
-            );
 
-            // Create new stream with screen video and existing audio
+            // Salvar o stream remoto original antes de substituir
+            const originalRemoteStream = remoteStream;
+
+            // Substituir o vídeo remoto pela tela compartilhada para visualização local
+            setRemoteStream(screenStream);
+
             if (localStream) {
                 const newStream = new MediaStream();
 
-                // Add screen video track
+                // Adicionar track de vídeo da tela
                 const screenVideoTrack = screenStream.getVideoTracks()[0];
-                newStream.addTrack(screenVideoTrack);
-
-                // Keep existing audio track
-                const audioTrack = localStream.getAudioTracks()[0];
-                if (audioTrack) {
-                    newStream.addTrack(audioTrack);
+                if (screenVideoTrack) {
+                    newStream.addTrack(screenVideoTrack);
                 }
 
-                // Stop old video track
+                // Adicionar áudio da tela se disponível, senão usar áudio do microfone
+                const screenAudioTrack = screenStream.getAudioTracks()[0];
+                if (screenAudioTrack) {
+                    console.log("✅ Using screen audio");
+                    newStream.addTrack(screenAudioTrack);
+                } else {
+                    // Se não há áudio da tela, manter o áudio do microfone
+                    const micAudioTrack = localStream.getAudioTracks()[0];
+                    if (micAudioTrack) {
+                        console.log("✅ Using microphone audio");
+                        newStream.addTrack(micAudioTrack);
+                    }
+                }
+
+                // Parar track de vídeo antigo
                 const oldVideoTrack = localStream.getVideoTracks()[0];
                 if (oldVideoTrack) {
                     oldVideoTrack.stop();
                 }
 
-                // Update local stream with screen share
+                // Parar track de áudio antigo apenas se temos áudio da tela
+                if (screenAudioTrack) {
+                    const oldAudioTrack = localStream.getAudioTracks()[0];
+                    if (oldAudioTrack) {
+                        oldAudioTrack.stop();
+                    }
+                }
+
                 setLocalStream(newStream);
 
-                // If we're in a call, we need to replace the track in the peer connection
+                // Substituir tracks na conexão peer
                 if (currentPeerConnection) {
-                    console.log("🔄 Replacing video track in peer connection");
+                    console.log("🔄 Replacing tracks in peer connection");
 
-                    const senders = currentPeerConnection.getSenders();
-                    const videoSender = senders.find(
-                        (sender: RTCRtpSender) =>
-                            sender.track && sender.track.kind === "video"
-                    );
+                    try {
+                        const senders = currentPeerConnection.getSenders();
 
-                    if (videoSender) {
-                        console.log("🔄 Found video sender, replacing track");
-                        videoSender
-                            .replaceTrack(screenVideoTrack)
-                            .then(() =>
-                                console.log("✅ Track replaced successfully")
-                            )
-                            .catch((err: any) =>
-                                console.error("❌ Error replacing track:", err)
+                        // Substituir track de vídeo
+                        const videoSender = senders.find(
+                            (sender: RTCRtpSender) =>
+                                sender.track && sender.track.kind === "video"
+                        );
+                        if (videoSender && screenVideoTrack) {
+                            console.log("🔄 Replacing video track");
+                            await videoSender.replaceTrack(screenVideoTrack);
+                            console.log("✅ Video track replaced successfully");
+                        }
+
+                        // Substituir track de áudio se temos áudio da tela
+                        if (screenAudioTrack) {
+                            const audioSender = senders.find(
+                                (sender: RTCRtpSender) =>
+                                    sender.track &&
+                                    sender.track.kind === "audio"
                             );
-                    } else {
-                        console.warn(
-                            "⚠️ No video sender found in peer connection"
+                            if (audioSender) {
+                                console.log(
+                                    "🔄 Replacing audio track with screen audio"
+                                );
+                                await audioSender.replaceTrack(
+                                    screenAudioTrack
+                                );
+                                console.log(
+                                    "✅ Audio track replaced successfully"
+                                );
+                            }
+                        }
+                    } catch (replaceError) {
+                        console.error(
+                            "❌ Error replacing track:",
+                            replaceError
+                        );
+                        throw new Error(
+                            "Erro ao enviar compartilhamento de tela para o outro participante"
                         );
                     }
                 }
 
-                // Handle screen share end
+                // Lidar com fim do compartilhamento
                 screenVideoTrack.onended = () => {
+                    console.log("🛑 Screen share ended by user");
                     stopScreenShare();
                 };
+
+                if (screenAudioTrack) {
+                    screenAudioTrack.onended = () => {
+                        console.log("🛑 Screen audio ended");
+                        stopScreenShare();
+                    };
+                }
             }
 
             setIsScreenSharing(true);
@@ -327,17 +426,31 @@ export const useMediaStream = () => {
             return screenStream;
         } catch (err) {
             console.error("❌ Error sharing screen:", err);
-            const errorMessage = "Erro ao compartilhar tela";
+            const errorMessage =
+                err instanceof Error
+                    ? err.message
+                    : "Erro ao compartilhar tela";
             setError(errorMessage);
             throw new Error(errorMessage);
         }
-    }, [localStream, currentPeerConnection]);
+    }, [
+        localStream,
+        currentPeerConnection,
+        checkScreenShareSupport,
+        remoteStream,
+    ]);
+
+    const restoreOriginalRemoteStream = useCallback(() => {
+        if (originalRemoteStreamRef.current) {
+            console.log("🔄 Restoring original remote stream");
+            setRemoteStream(originalRemoteStreamRef.current);
+        }
+    }, []);
 
     const stopScreenShare = useCallback(async () => {
         try {
             console.log("🛑 Stopping screen share");
 
-            // Get new camera stream
             const newCameraStream = await navigator.mediaDevices.getUserMedia({
                 video: {
                     width: { ideal: 1280 },
@@ -351,41 +464,44 @@ export const useMediaStream = () => {
                 },
             });
 
-            // Update local stream with camera
             setLocalStream(newCameraStream);
 
-            // If we're in a call, we need to replace the track in the peer connection
             if (currentPeerConnection) {
                 console.log(
-                    "🔄 Replacing screen share track with camera track in peer connection"
+                    "🔄 Replacing screen share tracks with camera tracks"
                 );
 
                 const senders = currentPeerConnection.getSenders();
+
+                // Substituir track de vídeo
                 const videoSender = senders.find(
                     (sender: RTCRtpSender) =>
                         sender.track && sender.track.kind === "video"
                 );
-
                 if (videoSender && newCameraStream.getVideoTracks()[0]) {
-                    console.log(
-                        "🔄 Found video sender, replacing track with camera"
+                    console.log("🔄 Replacing video track with camera");
+                    await videoSender.replaceTrack(
+                        newCameraStream.getVideoTracks()[0]
                     );
-                    videoSender
-                        .replaceTrack(newCameraStream.getVideoTracks()[0])
-                        .then(() =>
-                            console.log(
-                                "✅ Track replaced successfully with camera"
-                            )
-                        )
-                        .catch((err: any) =>
-                            console.error("❌ Error replacing track:", err)
-                        );
-                } else {
-                    console.warn(
-                        "⚠️ No video sender found in peer connection or no camera track"
+                    console.log("✅ Video track replaced with camera");
+                }
+
+                // Substituir track de áudio
+                const audioSender = senders.find(
+                    (sender: RTCRtpSender) =>
+                        sender.track && sender.track.kind === "audio"
+                );
+                if (audioSender && newCameraStream.getAudioTracks()[0]) {
+                    console.log("🔄 Replacing audio track with microphone");
+                    await audioSender.replaceTrack(
+                        newCameraStream.getAudioTracks()[0]
                     );
+                    console.log("✅ Audio track replaced with microphone");
                 }
             }
+
+            // Restaurar o stream remoto original
+            restoreOriginalRemoteStream();
 
             setIsScreenSharing(false);
             setError(null);
@@ -393,49 +509,32 @@ export const useMediaStream = () => {
             console.error("❌ Error stopping screen share:", err);
             setError("Erro ao parar compartilhamento de tela");
         }
-    }, [currentPeerConnection]);
+    }, [currentPeerConnection, restoreOriginalRemoteStream]);
 
     const toggleVideo = useCallback(() => {
-        console.log("🎥 Toggling video, current state:", isVideoEnabled);
-
         if (localStream) {
             const videoTrack = localStream.getVideoTracks()[0];
             if (videoTrack) {
                 videoTrack.enabled = !videoTrack.enabled;
                 setIsVideoEnabled(videoTrack.enabled);
-                console.log("✅ Video toggled to:", videoTrack.enabled);
-            } else {
-                console.warn("⚠️ No video track found");
             }
-        } else {
-            console.warn("⚠️ No local stream found");
         }
-    }, [localStream, isVideoEnabled]);
+    }, [localStream]);
 
     const toggleAudio = useCallback(() => {
-        console.log("🎤 Toggling audio, current state:", isAudioEnabled);
-
         if (localStream) {
             const audioTrack = localStream.getAudioTracks()[0];
             if (audioTrack) {
                 audioTrack.enabled = !audioTrack.enabled;
                 setIsAudioEnabled(audioTrack.enabled);
-                console.log("✅ Audio toggled to:", audioTrack.enabled);
-            } else {
-                console.warn("⚠️ No audio track found");
             }
-        } else {
-            console.warn("⚠️ No local stream found");
         }
-    }, [localStream, isAudioEnabled]);
+    }, [localStream]);
 
     const stopAllStreams = useCallback(() => {
-        console.log("🛑 Stopping all streams");
-
         if (localStream) {
             localStream.getTracks().forEach((track) => {
                 track.stop();
-                console.log("🛑 Stopped local track:", track.kind);
             });
             setLocalStream(null);
         }
@@ -443,7 +542,6 @@ export const useMediaStream = () => {
         if (remoteStream) {
             remoteStream.getTracks().forEach((track) => {
                 track.stop();
-                console.log("🛑 Stopped remote track:", track.kind);
             });
             setRemoteStream(null);
         }
@@ -455,12 +553,9 @@ export const useMediaStream = () => {
     }, [localStream, remoteStream]);
 
     const clearRemoteStream = useCallback(() => {
-        console.log("🧹 Clearing remote stream only");
-
         if (remoteStream) {
             remoteStream.getTracks().forEach((track) => {
                 track.stop();
-                console.log("🛑 Stopped remote track:", track.kind);
             });
             setRemoteStream(null);
         }
@@ -468,7 +563,6 @@ export const useMediaStream = () => {
         setCurrentPeerConnection(null);
     }, [remoteStream]);
 
-    // Initialize media on mount
     useEffect(() => {
         const initializeMedia = async () => {
             try {
@@ -502,5 +596,7 @@ export const useMediaStream = () => {
         updateLocalVideo,
         updateRemoteVideo,
         setCurrentPeerConnection,
+        checkScreenShareSupport,
+        restoreOriginalRemoteStream,
     };
 };
