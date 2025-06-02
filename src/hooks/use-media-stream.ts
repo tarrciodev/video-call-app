@@ -169,11 +169,11 @@ export const useMediaStream = () => {
                     userAgent: navigator.userAgent,
                 });
 
-                // if (!navigator.mediaDevices) {
-                //     throw new Error(
-                //         "A API de mídia não é suportada neste navegador. Certifique-se de que está usando HTTPS ou localhost."
-                //     );
-                // }
+                if (!navigator.mediaDevices) {
+                    throw new Error(
+                        "A API de mídia não é suportada neste navegador. Certifique-se de que está usando HTTPS ou localhost."
+                    );
+                }
 
                 const constraints = {
                     video: video
@@ -194,14 +194,14 @@ export const useMediaStream = () => {
                         : false,
                 };
 
-                const stream = await navigator?.mediaDevices?.getUserMedia(
+                const stream = await navigator.mediaDevices.getUserMedia(
                     constraints
                 );
                 console.log("✅ Got user media stream:", stream);
 
                 setLocalStream(stream);
-                setIsVideoEnabled(video && stream?.getVideoTracks().length > 0);
-                setIsAudioEnabled(audio && stream?.getAudioTracks().length > 0);
+                setIsVideoEnabled(video && stream.getVideoTracks().length > 0);
+                setIsAudioEnabled(audio && stream.getAudioTracks().length > 0);
                 setError(null);
 
                 return stream;
@@ -240,9 +240,9 @@ export const useMediaStream = () => {
         const isSupported =
             mediaDevicesAvailable && !!navigator.mediaDevices.getDisplayMedia;
         const isSecure = window.isSecureContext;
-        const isHttps = true;
-        // window.location.protocol === "https:" ||
-        // window.location.hostname === "localhost";
+        const isHttps =
+            window.location.protocol === "https:" ||
+            window.location.hostname === "localhost";
         const inIframe = isRunningInIframe();
         const isMobile = isMobileDevice();
 
@@ -286,35 +286,35 @@ export const useMediaStream = () => {
 
             const support = checkScreenShareSupport();
 
-            // if (!support.mediaDevicesAvailable) {
-            //     throw new Error(
-            //         "A API de mídia não está disponível neste navegador. Certifique-se de que está usando HTTPS ou localhost."
-            //     );
-            // }
+            if (!support.mediaDevicesAvailable) {
+                throw new Error(
+                    "A API de mídia não está disponível neste navegador. Certifique-se de que está usando HTTPS ou localhost."
+                );
+            }
 
-            // if (!support.isSupported) {
-            //     throw new Error(
-            //         "Compartilhamento de tela não é suportado neste navegador."
-            //     );
-            // }
+            if (!support.isSupported) {
+                throw new Error(
+                    "Compartilhamento de tela não é suportado neste navegador."
+                );
+            }
 
-            // if (!support.isSecure) {
-            //     throw new Error(
-            //         "Compartilhamento de tela requer conexão segura (HTTPS)."
-            //     );
-            // }
+            if (!support.isSecure) {
+                throw new Error(
+                    "Compartilhamento de tela requer conexão segura (HTTPS)."
+                );
+            }
 
-            // if (support.inIframe) {
-            //     throw new Error(
-            //         "Compartilhamento de tela não funciona em previews ou iframes. Abra o aplicativo em uma nova aba."
-            //     );
-            // }
+            if (support.inIframe) {
+                throw new Error(
+                    "Compartilhamento de tela não funciona em previews ou iframes. Abra o aplicativo em uma nova aba."
+                );
+            }
 
-            // if (support.isMobile && !support.mobileSupport) {
-            //     throw new Error(
-            //         "Compartilhamento de tela não é suportado neste navegador móvel. Tente usar Chrome ou Firefox mais recente no Android."
-            //     );
-            // }
+            if (support.isMobile && !support.mobileSupport) {
+                throw new Error(
+                    "Compartilhamento de tela não é suportado neste navegador móvel. Tente usar Chrome ou Firefox mais recente no Android."
+                );
+            }
 
             const displayMediaOptions: DisplayMediaStreamOptions = {
                 video: {
@@ -333,17 +333,17 @@ export const useMediaStream = () => {
                 };
             }
 
-            const screenStream = await navigator?.mediaDevices?.getDisplayMedia(
+            const screenStream = await navigator.mediaDevices.getDisplayMedia(
                 displayMediaOptions
             );
             console.log("✅ Got screen share stream:", screenStream);
             console.log("📊 Screen share tracks:", {
-                video: screenStream?.getVideoTracks().length,
-                audio: screenStream?.getAudioTracks().length,
+                video: screenStream.getVideoTracks().length,
+                audio: screenStream.getAudioTracks().length,
             });
 
             // Detailed debugging for audio tracks
-            if (screenStream?.getAudioTracks().length === 0) {
+            if (screenStream.getAudioTracks().length === 0) {
                 console.warn(
                     "⚠️ No audio tracks found in screen share stream. Ensure 'Share audio' is enabled in the browser prompt, or try sharing the entire screen. Browser: ",
                     navigator.userAgent
@@ -352,7 +352,7 @@ export const useMediaStream = () => {
                     "Não foi possível capturar o áudio do sistema. Certifique-se de marcar 'Compartilhar áudio' no navegador (Chrome) ou tente compartilhar a tela inteira (Firefox)."
                 );
             } else {
-                screenStream?.getAudioTracks().forEach((track, index) => {
+                screenStream.getAudioTracks().forEach((track, index) => {
                     console.log(`🔊 Audio track ${index}:`, {
                         label: track.label,
                         kind: track.kind,
@@ -473,7 +473,7 @@ export const useMediaStream = () => {
             }
 
             setIsScreenSharing(true);
-            if (screenStream?.getAudioTracks().length > 0) {
+            if (screenStream.getAudioTracks().length > 0) {
                 setError(null); // Clear error only if audio is successfully captured
             }
             return screenStream;
@@ -504,20 +504,18 @@ export const useMediaStream = () => {
         try {
             console.log("🛑 Stopping screen share");
 
-            const newCameraStream = await navigator?.mediaDevices?.getUserMedia(
-                {
-                    video: {
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        facingMode: "user",
-                    },
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                    },
-                }
-            );
+            const newCameraStream = await navigator.mediaDevices.getUserMedia({
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    facingMode: "user",
+                },
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+            });
 
             setLocalStream(newCameraStream);
 

@@ -49,16 +49,16 @@ export default function VideoControls({
         isSupported: true,
         isSecure: true,
         canUse: true,
-        // isMobile: false,
-        // mobileSupport: false,
+        isMobile: false,
+        mobileSupport: false,
     });
 
     useEffect(() => {
         if (checkScreenShareSupport) {
-            // const support = checkScreenShareSupport();
-            // setScreenShareSupport(support);
-            // // Log for debugging
-            // console.log("Screen share support:", support);
+            const support = checkScreenShareSupport();
+            setScreenShareSupport(support);
+            // Log for debugging
+            console.log("Screen share support:", support);
         }
     }, [checkScreenShareSupport]);
 
@@ -123,7 +123,7 @@ export default function VideoControls({
     };
 
     return (
-        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm fixed bottom-20 right-12'>
+        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm'>
             <Button
                 variant={isAudioEnabled ? "default" : "destructive"}
                 size='icon'
@@ -156,7 +156,7 @@ export default function VideoControls({
                     variant={isScreenSharing ? "secondary" : "outline"}
                     size='icon'
                     onClick={handleScreenShareClick}
-                    // disabled={!screenShareSupport.canUse}
+                    disabled={!screenShareSupport.canUse}
                     className={`w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform ${
                         !screenShareSupport.canUse
                             ? "opacity-50 cursor-not-allowed"
