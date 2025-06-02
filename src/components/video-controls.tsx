@@ -47,15 +47,18 @@ export default function VideoControls({
 }: VideoControlsProps) {
     const [screenShareSupport, setScreenShareSupport] = useState<any>({
         isSupported: true,
-        isSecure: true,
-        canUse: true,
-        isMobile: false,
-        mobileSupport: false,
+        // isSecure: true,
+        // canUse: true,
+        // isMobile: false,
+        // mobileSupport: false,
     });
 
     useEffect(() => {
         if (checkScreenShareSupport) {
-            setScreenShareSupport(checkScreenShareSupport());
+            const support = checkScreenShareSupport();
+            setScreenShareSupport(support);
+            // Log for debugging
+            console.log("Screen share support:", support);
         }
     }, [checkScreenShareSupport]);
 
@@ -63,10 +66,12 @@ export default function VideoControls({
         if (!screenShareSupport.canUse) {
             if (!screenShareSupport.isSupported) {
                 alert(
-                    "Compartilhamento de tela não é suportado neste navegador"
+                    "Compartilhamento de tela não é suportado neste navegador."
                 );
             } else if (!screenShareSupport.isSecure) {
-                alert("Compartilhamento de tela requer conexão segura (HTTPS)");
+                alert(
+                    "Compartilhamento de tela requer conexão segura (HTTPS)."
+                );
             } else if (
                 screenShareSupport.inIframe ||
                 screenShareSupport.hasPermissionPolicy
@@ -78,9 +83,16 @@ export default function VideoControls({
                 screenShareSupport.isMobile &&
                 !screenShareSupport.mobileSupport
             ) {
-                alert(
-                    "Compartilhamento de tela não é suportado neste navegador móvel. Tente usar Chrome ou Firefox mais recente no Android."
-                );
+                // Improved message for mobile users
+                if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                    alert(
+                        "Compartilhamento de tela não é suportado no iOS (iPhone/iPad). Use um dispositivo Android com Chrome ou Firefox, ou um computador."
+                    );
+                } else {
+                    alert(
+                        "Compartilhamento de tela não é suportado nesta versão do navegador no Android. Atualize para a versão mais recente do Chrome (107 ou superior) e use Android 10 ou superior."
+                    );
+                }
             }
             return;
         }
@@ -93,7 +105,10 @@ export default function VideoControls({
                 screenShareSupport.isMobile &&
                 !screenShareSupport.mobileSupport
             ) {
-                return "Não suportado neste navegador móvel";
+                if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                    return "Não suportado no iOS (iPhone/iPad)";
+                }
+                return "Atualize o Chrome (107+) e use Android 10+";
             } else if (screenShareSupport.inIframe) {
                 return "Abra em nova aba para compartilhar tela";
             } else if (!screenShareSupport.isSupported) {
@@ -102,11 +117,13 @@ export default function VideoControls({
                 return "Requer conexão HTTPS";
             }
         }
-        return isScreenSharing ? "Parar compartilhamento" : "Compartilhar tela";
+        return isScreenSharing
+            ? "Parar compartilhamento"
+            : "Compartilhar tela (sem áudio do sistema no celular)";
     };
 
     return (
-        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm'>
+        <div className='flex items-center justify-center gap-4 p-4 bg-black/50 rounded-2xl backdrop-blur-sm fixed top-12 right-12'>
             <Button
                 variant={isAudioEnabled ? "default" : "destructive"}
                 size='icon'
@@ -139,7 +156,7 @@ export default function VideoControls({
                     variant={isScreenSharing ? "secondary" : "outline"}
                     size='icon'
                     onClick={handleScreenShareClick}
-                    disabled={!screenShareSupport.canUse}
+                    // disabled={!screenShareSupport.canUse}
                     className={`w-14 h-14 rounded-full shadow-lg hover:scale-105 transition-transform ${
                         !screenShareSupport.canUse
                             ? "opacity-50 cursor-not-allowed"
@@ -168,13 +185,15 @@ export default function VideoControls({
                 {/* Tooltip para mobile */}
                 {screenShareSupport.isMobile &&
                     !screenShareSupport.mobileSupport && (
-                        <div className='absolute -top-16 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none'>
-                            Use Chrome/Firefox no Android
+                        <div className='absolute -top-16 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none'>
+                            {/iPhone|iPad|iPod/i.test(navigator.userAgent)
+                                ? "Não suportado no iOS"
+                                : "Use Chrome 107+ no Android 10+"}
                         </div>
                     )}
 
                 {screenShareSupport.inIframe && (
-                    <div className='absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap opacity-0 hover:opacity-100 transition-opacity pointer-events-none'>
+                    <div className='absolute -top-12 left-1/2 transform -translate-x-1/2 bg-black/80 text-white text-xs p-2 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none'>
                         Abra em uma nova aba
                     </div>
                 )}
