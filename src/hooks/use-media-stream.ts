@@ -15,7 +15,6 @@ export const useMediaStream = () => {
     const localVideoRef = useRef<HTMLVideoElement>(null);
     const remoteVideoRef = useRef<HTMLVideoElement>(null);
 
-    // Adicione estas variáveis no início do hook
     const originalRemoteStreamRef = useRef<MediaStream | null>(null);
 
     const isRunningInIframe = useCallback(() => {
@@ -32,7 +31,6 @@ export const useMediaStream = () => {
         );
     }, []);
 
-    // Force video element update when stream changes
     const updateLocalVideo = useCallback((stream: MediaStream | null) => {
         console.log(
             "🔄 Updating local video element with stream:",
@@ -205,12 +203,10 @@ export const useMediaStream = () => {
         []
     );
 
-    // Modifique a função setRemoteStreamAndVideo para salvar o stream original
     const setRemoteStreamAndVideo = useCallback(
         (stream: MediaStream, peerConnection?: any) => {
             console.log("🌐 Setting remote stream:", stream);
 
-            // Salvar o stream remoto original se não estivermos compartilhando tela
             if (!isScreenSharing) {
                 originalRemoteStreamRef.current = stream;
             }
@@ -235,7 +231,6 @@ export const useMediaStream = () => {
         const inIframe = isRunningInIframe();
         const isMobile = isMobileDevice();
 
-        // Para mobile, verificar se o navegador suporta getDisplayMedia
         const mobileSupport = isMobile && isSupported;
 
         return {
@@ -256,6 +251,9 @@ export const useMediaStream = () => {
 
     const getScreenShare = useCallback(async (): Promise<MediaStream> => {
         try {
+            console.log(
+                "🔔 Instrução: Para compartilhar o áudio do vídeo (como som de um vídeo ou música), certifique-se de selecionar uma aba ou janela e marque a opção 'Compartilhar áudio' (em navegadores como Chrome) ou escolha compartilhar a tela inteira (em navegadores como Firefox)."
+            );
             console.log("🖥️ Requesting screen share");
 
             const support = checkScreenShareSupport();
@@ -284,45 +282,42 @@ export const useMediaStream = () => {
                 );
             }
 
-            let screenStream: MediaStream;
+            const displayMediaOptions: DisplayMediaStreamOptions = {
+                video: {
+                    width: { ideal: 1920, max: 1920 },
+                    height: { ideal: 1080, max: 1080 },
+                    frameRate: { ideal: 30, max: 30 },
+                },
+                audio: true, // Request system audio
+            };
 
-            try {
-                // Configurações otimizadas para incluir áudio do sistema
-                const displayMediaOptions: DisplayMediaStreamOptions = {
-                    video: {
-                        width: { ideal: 1920, max: 1920 },
-                        height: { ideal: 1080, max: 1080 },
-                        frameRate: { ideal: 30, max: 30 },
-                    },
-                    audio: {
-                        echoCancellation: false, // Desabilitar para áudio do sistema
-                        noiseSuppression: false, // Desabilitar para áudio do sistema
-                        autoGainControl: false, // Desabilitar para áudio do sistema
-                        sampleRate: 48000, // Taxa de amostragem mais alta para melhor qualidade
-                        channelCount: 2, // Estéreo
-                    },
+            if (support.isMobile) {
+                displayMediaOptions.video = {
+                    width: { ideal: 1280, max: 1280 },
+                    height: { ideal: 720, max: 720 },
+                    frameRate: { ideal: 15, max: 30 },
                 };
+            }
 
-                // Para mobile, usar configurações mais simples
-                if (support.isMobile) {
-                    displayMediaOptions.video = {
-                        width: { ideal: 1280, max: 1280 },
-                        height: { ideal: 720, max: 720 },
-                        frameRate: { ideal: 15, max: 30 },
-                    };
-                }
+            const screenStream = await navigator.mediaDevices.getDisplayMedia(
+                displayMediaOptions
+            );
+            console.log("✅ Got screen share stream:", screenStream);
+            console.log("📊 Screen share tracks:", {
+                video: screenStream.getVideoTracks().length,
+                audio: screenStream.getAudioTracks().length,
+            });
 
-                screenStream = await navigator.mediaDevices.getDisplayMedia(
-                    displayMediaOptions
+            // Detailed debugging for audio tracks
+            if (screenStream.getAudioTracks().length === 0) {
+                console.warn(
+                    "⚠️ No audio tracks found in screen share stream. Ensure 'Share audio' is enabled in the browser prompt, or try sharing the entire screen. Browser: ",
+                    navigator.userAgent
                 );
-
-                console.log("✅ Got screen share stream:", screenStream);
-                console.log("📊 Screen share tracks:", {
-                    video: screenStream.getVideoTracks().length,
-                    audio: screenStream.getAudioTracks().length,
-                });
-
-                // Log das configurações dos tracks de áudio
+                setError(
+                    "Não foi possível capturar o áudio do sistema. Certifique-se de marcar 'Compartilhar áudio' no navegador (Chrome) ou tente compartilhar a tela inteira (Firefox)."
+                );
+            } else {
                 screenStream.getAudioTracks().forEach((track, index) => {
                     console.log(`🔊 Audio track ${index}:`, {
                         label: track.label,
@@ -331,69 +326,23 @@ export const useMediaStream = () => {
                         settings: track.getSettings(),
                     });
                 });
-            } catch (permissionError: any) {
-                console.error(
-                    "❌ Screen share permission error:",
-                    permissionError
-                );
-
-                if (permissionError.name === "NotAllowedError") {
-                    throw new Error(
-                        "Permissão negada para compartilhar tela. Clique em 'Permitir' quando solicitado."
-                    );
-                } else if (permissionError.name === "NotSupportedError") {
-                    if (support.isMobile) {
-                        throw new Error(
-                            "Compartilhamento de tela não é suportado neste dispositivo móvel. Tente usar um navegador mais recente."
-                        );
-                    } else {
-                        throw new Error(
-                            "Compartilhamento de tela não é suportado neste dispositivo"
-                        );
-                    }
-                } else if (
-                    permissionError.message?.includes("permissions policy")
-                ) {
-                    throw new Error(
-                        "Compartilhamento de tela bloqueado pelas políticas de segurança. Abra o aplicativo em uma nova aba."
-                    );
-                } else if (
-                    permissionError.message?.includes("display-capture")
-                ) {
-                    throw new Error(
-                        "Funcionalidade de captura de tela não disponível neste ambiente. Abra o aplicativo em uma nova aba."
-                    );
-                } else {
-                    throw new Error(
-                        "Erro ao acessar compartilhamento de tela: " +
-                            permissionError.message
-                    );
-                }
             }
 
-            // Salvar o stream remoto original antes de substituir
-            const originalRemoteStream = remoteStream;
-
-            // Substituir o vídeo remoto pela tela compartilhada para visualização local
             setRemoteStream(screenStream);
 
             if (localStream) {
                 const newStream = new MediaStream();
-
-                // Adicionar track de vídeo da tela
                 const screenVideoTrack = screenStream.getVideoTracks()[0];
                 if (screenVideoTrack) {
                     newStream.addTrack(screenVideoTrack);
                     console.log("✅ Added screen video track to local stream");
                 }
 
-                // Priorizar áudio da tela (áudio do sistema) sobre microfone
                 const screenAudioTrack = screenStream.getAudioTracks()[0];
                 if (screenAudioTrack) {
                     console.log("✅ Using screen audio (system audio)");
                     newStream.addTrack(screenAudioTrack);
 
-                    // Parar áudio do microfone se temos áudio da tela
                     const micAudioTrack = localStream.getAudioTracks()[0];
                     if (micAudioTrack) {
                         console.log(
@@ -402,21 +351,25 @@ export const useMediaStream = () => {
                         micAudioTrack.stop();
                     }
                 } else {
-                    // Se não há áudio da tela, manter o áudio do microfone
+                    console.log(
+                        "⚠️ No system audio available, continuing with microphone audio"
+                    );
                     const micAudioTrack = localStream.getAudioTracks()[0];
                     if (micAudioTrack) {
                         console.log(
-                            "🎤 Using microphone audio (no system audio available)"
+                            "🎙️ Using microphone audio as fallback. Note: This may capture ambient sound instead of system audio."
                         );
                         newStream.addTrack(micAudioTrack);
                     } else {
                         console.log(
                             "⚠️ No audio available from screen or microphone"
                         );
+                        setError(
+                            "Nenhum áudio disponível. Verifique as permissões do microfone ou tente compartilhar o áudio do sistema novamente."
+                        );
                     }
                 }
 
-                // Parar track de vídeo antigo
                 const oldVideoTrack = localStream.getVideoTracks()[0];
                 if (oldVideoTrack) {
                     oldVideoTrack.stop();
@@ -424,14 +377,10 @@ export const useMediaStream = () => {
 
                 setLocalStream(newStream);
 
-                // Substituir tracks na conexão peer
                 if (currentPeerConnection) {
                     console.log("🔄 Replacing tracks in peer connection");
-
                     try {
                         const senders = currentPeerConnection.getSenders();
-
-                        // Substituir track de vídeo
                         const videoSender = senders.find(
                             (sender: RTCRtpSender) =>
                                 sender.track && sender.track.kind === "video"
@@ -442,7 +391,6 @@ export const useMediaStream = () => {
                             console.log("✅ Video track replaced successfully");
                         }
 
-                        // Substituir track de áudio
                         const audioSender = senders.find(
                             (sender: RTCRtpSender) =>
                                 sender.track && sender.track.kind === "audio"
@@ -477,7 +425,6 @@ export const useMediaStream = () => {
                     }
                 }
 
-                // Lidar com fim do compartilhamento
                 screenVideoTrack.onended = () => {
                     console.log("🛑 Screen share ended by user");
                     stopScreenShare();
@@ -492,7 +439,9 @@ export const useMediaStream = () => {
             }
 
             setIsScreenSharing(true);
-            setError(null);
+            if (screenStream.getAudioTracks().length > 0) {
+                setError(null); // Clear error only if audio is successfully captured
+            }
             return screenStream;
         } catch (err) {
             console.error("❌ Error sharing screen:", err);
@@ -543,7 +492,6 @@ export const useMediaStream = () => {
 
                 const senders = currentPeerConnection.getSenders();
 
-                // Substituir track de vídeo
                 const videoSender = senders.find(
                     (sender: RTCRtpSender) =>
                         sender.track && sender.track.kind === "video"
@@ -556,7 +504,6 @@ export const useMediaStream = () => {
                     console.log("✅ Video track replaced with camera");
                 }
 
-                // Substituir track de áudio
                 const audioSender = senders.find(
                     (sender: RTCRtpSender) =>
                         sender.track && sender.track.kind === "audio"
@@ -570,7 +517,6 @@ export const useMediaStream = () => {
                 }
             }
 
-            // Restaurar o stream remoto original
             restoreOriginalRemoteStream();
 
             setIsScreenSharing(false);
