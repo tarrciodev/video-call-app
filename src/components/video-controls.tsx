@@ -151,7 +151,7 @@ export default function VideoControls({
             </Button>
 
             {/* Screen Share - Melhorado para mobile */}
-            <div className='relative'>
+            <div className='relative hidden sm:flex flex-col '>
                 <Button
                     variant={isScreenSharing ? "secondary" : "outline"}
                     size='icon'
@@ -173,7 +173,7 @@ export default function VideoControls({
 
                 {/* Indicador visual para diferentes estados */}
                 {!screenShareSupport.canUse && (
-                    <div className='absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 rounded-full flex items-center justify-center'>
+                    <div className='flex absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 rounded-full items-center justify-center'>
                         {screenShareSupport.isMobile ? (
                             <Smartphone className='w-3 h-3 text-white' />
                         ) : (

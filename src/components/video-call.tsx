@@ -722,7 +722,7 @@ export default function VideoCall({
                                                 ref={localVideoContainerRef}
                                                 className={`absolute ${
                                                     isMobile
-                                                        ? "w-24 h-32"
+                                                        ? "w-24 h-32 bottom-10"
                                                         : "w-48 h-36"
                                                 } bg-black rounded-lg overflow-hidden border-2 border-white/30 shadow-2xl z-20 cursor-move select-none ${
                                                     isDragging
