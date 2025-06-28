@@ -131,7 +131,6 @@ export default function VideoCall({
         checkScreenShareSupport,
     } = useMediaStream();
 
-    // Detectar se é mobile
     useEffect(() => {
         const checkMobile = () => {
             setIsMobile(window.innerWidth < 768);
@@ -142,7 +141,6 @@ export default function VideoCall({
         return () => window.removeEventListener("resize", checkMobile);
     }, []);
 
-    // Posição inicial do vídeo local
     useEffect(() => {
         if (callState.isInCall && !isPositioned) {
             const setInitialPosition = () => {
@@ -152,7 +150,6 @@ export default function VideoCall({
                     const videoWidth = isMobile ? 96 : 192; // w-24 = 96px, w-48 = 192px
                     const videoHeight = isMobile ? 128 : 144; // h-32 = 128px, h-36 = 144px
 
-                    // Posição inicial: canto inferior direito
                     setLocalVideoPosition({
                         x: container.width - videoWidth - (isMobile ? 16 : 16), // 16px de margem
                         y: container.height - videoHeight - (isMobile ? 4 : 16), // bottom-1 no mobile, 16px no desktop
@@ -161,12 +158,10 @@ export default function VideoCall({
                 }
             };
 
-            // Aguardar um pouco para o container estar renderizado
             setTimeout(setInitialPosition, 100);
         }
     }, [callState.isInCall, isMobile, isPositioned]);
 
-    // Reset posição quando sair da chamada
     useEffect(() => {
         if (!callState.isInCall) {
             setIsPositioned(false);
@@ -174,7 +169,6 @@ export default function VideoCall({
         }
     }, [callState.isInCall]);
 
-    // Gerenciar visibilidade dos controles no mobile
     useEffect(() => {
         if (isMobile && callState.isInCall) {
             if (controlsTimeoutRef.current) {
@@ -196,7 +190,6 @@ export default function VideoCall({
     }, [isMobile, callState.isInCall]);
 
     const handleVideoClick = (e: React.MouseEvent) => {
-        // Não mostrar controles se clicou no vídeo local
         if (localVideoContainerRef.current?.contains(e.target as Node)) {
             return;
         }
@@ -212,7 +205,6 @@ export default function VideoCall({
         }
     };
 
-    // Funções de drag and drop
     const handleMouseDown = (e: React.MouseEvent) => {
         if (!localVideoContainerRef.current || !videoContainerRef.current)
             return;
@@ -251,12 +243,11 @@ export default function VideoCall({
             const videoWidth = isMobile ? 96 : 192;
             const videoHeight = isMobile ? 128 : 144;
 
-            // Manter pelo menos 20px do vídeo visível
             const minVisible = 20;
 
             const constrainedX = Math.max(
-                -(videoWidth - minVisible), // Pode sair pela esquerda, mas deixa 20px visível
-                Math.min(x, container.width - minVisible) // Pode sair pela direita, mas deixa 20px visível
+                -(videoWidth - minVisible),
+                Math.min(x, container.width - minVisible)
             );
 
             const constrainedY = Math.max(
@@ -921,7 +912,7 @@ export default function VideoCall({
 
     // Layout quando não está em chamada - ajustado para caber na tela
     return (
-        <div className='h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 overflow-hidden'>
+        <div className='h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 overflow-y-auto'>
             <div className='h-full max-w-6xl mx-auto flex flex-col'>
                 <div className='text-center mb-4 flex-shrink-0'>
                     <h1 className='text-3xl font-bold text-gray-900 mb-2'>
@@ -958,7 +949,7 @@ export default function VideoCall({
                     </div>
                 )}
 
-                <div className='grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1 min-h-0'>
+                <div className='grid grid-cols-1 lg:grid-cols-3 gap-2 flex-1 min-h-0'>
                     <div className='lg:col-span-1'>
                         <Card className='h-full flex flex-col'>
                             <CardHeader className='flex-shrink-0 pb-3'>

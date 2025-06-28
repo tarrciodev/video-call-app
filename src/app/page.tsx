@@ -34,7 +34,6 @@ export default function Home() {
         setLoginError(null);
     };
 
-    // Show login screen if user is not logged in
     if (!userEmail || !peer) {
         return (
             <LoginScreen
@@ -46,7 +45,6 @@ export default function Home() {
         );
     }
 
-    // Show video call interface if user is logged in
     return (
         <VideoCall userEmail={userEmail} peer={peer} onLogout={handleLogout} />
     );
